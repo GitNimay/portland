@@ -9,11 +9,9 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -227,12 +225,14 @@ private fun Header(
     val p = LocalPalette.current
     val haptics = LocalHapticFeedback.current
     Column(modifier.onSizeChanged { onHeaderHeight(it.height) }.statusBarsPadding()) {
-        // The title row and the search field cross-fade, the arriving one growing in slightly from the centre.
+        // Keeps the typed text on the field while it fades out after closing.
+        var lastQuery by remember { mutableStateOf("") }
+        if (query != null) lastQuery = query
+        // The title row and the search field cross-fade. Opacity only: scaling would bend the glass refraction.
         AnimatedContent(
             targetState = query != null,
             transitionSpec = {
-                (fadeIn(tween(220, delayMillis = 60)) + scaleIn(Motion.smooth(), initialScale = 0.96f)) togetherWith
-                    fadeOut(tween(120)) using SizeTransform(clip = false)
+                fadeIn(tween(220, delayMillis = 60)) togetherWith fadeOut(tween(120)) using SizeTransform(clip = false)
             },
             contentAlignment = Alignment.Center,
             modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -258,8 +258,8 @@ private fun Header(
                     val focus = remember { FocusRequester() }
                     LaunchedEffect(Unit) { focus.requestFocus() }
                     BasicTextField(
-                        // While it fades out after closing, the field is empty and no longer takes input.
-                        value = query.orEmpty(),
+                        // While it fades out after closing, the field no longer takes input.
+                        value = lastQuery,
                         onValueChange = { onQuery(it) },
                         enabled = query != null,
                         singleLine = true,
@@ -272,7 +272,7 @@ private fun Header(
                                 Icon(painterResource(R.drawable.ic_search), contentDescription = null, tint = p.ink3, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
                                 Box(Modifier.weight(1f)) {
-                                    if (query.isNullOrEmpty()) Text("Search", style = Type.body, color = p.ink3)
+                                    if (lastQuery.isEmpty()) Text("Search", style = Type.body, color = p.ink3)
                                     field()
                                 }
                             }
@@ -313,8 +313,9 @@ private fun Header(
             if (update != null) lastUpdate = update
             AnimatedVisibility(
                 visible = update != null && query == null,
-                enter = expandVertically(Motion.smooth(), expandFrom = Alignment.Top) + fadeIn(tween(240, delayMillis = 80)),
-                exit = shrinkVertically(Motion.smooth()) + fadeOut(tween(160)),
+                // No height animation: the header re-measures its collapse on every size change.
+                enter = fadeIn(tween(240, delayMillis = 80)) + scaleIn(Motion.smooth(), initialScale = 0.9f, transformOrigin = TransformOrigin(0f, 0.5f)),
+                exit = fadeOut(tween(160)),
             ) {
                 Text(
                     "Version ${lastUpdate?.versionName.orEmpty()} is ready · Restart",

@@ -37,7 +37,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -62,6 +64,7 @@ fun HomeScreen() {
     var tab by rememberSaveable { mutableIntStateOf(0) } // 0 = pins, 1 = boards
     var query by rememberSaveable { mutableStateOf<String?>(null) } // null = search closed
     val pick = rememberLauncherForActivityResult(PickMultipleVisualMedia()) { uris -> store.launch { add(uris, null) } }
+    val selection = rememberPinSelection()
 
     val pins = remember(lib.pins, lib.boards, query) {
         val q = query?.trim().orEmpty()
@@ -84,7 +87,7 @@ fun HomeScreen() {
             query = query,
             onQuery = { query = it },
             tab = if (query != null) 0 else tab,
-            onTab = { tab = it },
+            onTab = { tab = it; selection.clear() },
         )
     }
 
@@ -97,10 +100,13 @@ fun HomeScreen() {
             PinGrid(
                 pins = pins,
                 onOpen = { i -> nav.push(Screen.Detail(pins.map { it.id }, i)) },
+                selection = selection,
+                loading = if (query == null) importing else 0,
                 header = {
                     Column {
                         header()
                         when {
+                            importing > 0 && query == null -> {}
                             lib.pins.isEmpty() -> EmptyState(
                                 "Nothing saved yet",
                                 "Tap + to add images and videos, or share them to Portland from any app.",
@@ -116,7 +122,9 @@ fun HomeScreen() {
         AddButton(
             "Add images and videos",
             Modifier.align(Alignment.BottomEnd),
+            visible = !selection.active,
         ) { pick.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo)) }
+        SelectionBar(selection)
     }
 }
 
@@ -133,6 +141,7 @@ private fun Header(
     onTab: (Int) -> Unit,
 ) {
     val p = LocalPalette.current
+    val haptics = LocalHapticFeedback.current
     Column(Modifier.statusBarsPadding().padding(start = 4.dp, top = 20.dp, bottom = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (query == null) {
@@ -176,7 +185,10 @@ private fun Header(
                         label,
                         style = Type.body.copy(fontWeight = FontWeight.Medium),
                         color = if (i == tab) p.ink else p.ink3,
-                        modifier = Modifier.clickable(role = Role.Tab, onClickLabel = label) { onTab(i) }.padding(vertical = 6.dp),
+                        modifier = Modifier.clickable(role = Role.Tab, onClickLabel = label) {
+                            if (i != tab) haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                            onTab(i)
+                        }.padding(vertical = 6.dp),
                     )
                 }
             }

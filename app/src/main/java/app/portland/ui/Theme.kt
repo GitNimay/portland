@@ -27,15 +27,18 @@ data class Palette(
     val ink3: Color,  // metadata, placeholders
     val line: Color,  // separators
     val fill: Color,  // image placeholders, quiet surfaces
+    val shimmer: Color, // the light that sweeps over a loading placeholder
 )
 
 private val Light = Palette(
     canvas = Color.White, ink = Color.Black, ink2 = Color.Black.copy(0.64f),
     ink3 = Color.Black.copy(0.56f), line = Color.Black.copy(0.10f), fill = Color.Black.copy(0.05f),
+    shimmer = Color.White.copy(0.7f),
 )
 private val Dark = Palette(
     canvas = Color(0xFF0A0A0A), ink = Color.White, ink2 = Color.White.copy(0.56f),
     ink3 = Color.White.copy(0.46f), line = Color.White.copy(0.12f), fill = Color.White.copy(0.08f),
+    shimmer = Color.White.copy(0.07f),
 )
 
 private fun geist(weight: Int) =

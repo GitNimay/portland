@@ -1,3 +1,5 @@
+<img src="docs/logo.png" width="96" alt="Portland logo">
+
 # Portland
 
 A private, single-user inspiration safe for Android. Save images and videos, sort them into boards, and find them again by note or AI description. No accounts, no login.

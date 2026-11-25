@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.Portland" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/canvas</item>
+        <!-- Splash: the adaptive icon (white disc + mark) on the app canvas, so dark mode never flashes white. -->
+        <item name="android:windowSplashScreenBackground">@color/canvas</item>
+    </style>
+</resources>

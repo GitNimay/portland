@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The halftone mark sits inside the 66dp safe zone of the 108dp canvas, so every OEM mask keeps it whole. -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@android:color/white"/>
-    <foreground android:drawable="@drawable/ic_launcher_fg"/>
-    <monochrome android:drawable="@drawable/ic_launcher_fg"/>
+    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+    <!-- Android 13+ themed icons tint this alpha mask with the wallpaper colours. -->
+    <monochrome android:drawable="@mipmap/ic_launcher_foreground"/>
 </adaptive-icon>

@@ -79,7 +79,7 @@ fun HomeScreen() {
             importing = importing,
             matches = if (query.isNullOrBlank()) null else pins.size,
             update = update,
-            onUpdate = { store.launch { Updater.install(context.applicationContext, interactive = true) } },
+            onUpdate = { store.launch { Updater.install(context, interactive = true) } },
             query = query,
             onQuery = { query = it },
             tab = if (query != null) 0 else tab,

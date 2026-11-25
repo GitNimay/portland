@@ -37,6 +37,10 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         Updater.foreground = true
+        if (Updater.awaitingPermission && packageManager.canRequestPackageInstalls()) {
+            Updater.awaitingPermission = false
+            store.launch { Updater.install(this@MainActivity, interactive = true) }
+        }
     }
 
     override fun onStop() {

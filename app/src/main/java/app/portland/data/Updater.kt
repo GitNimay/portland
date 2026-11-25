@@ -1,5 +1,6 @@
 package app.portland.data
 
+import android.app.Activity
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -47,6 +48,9 @@ object Updater {
 
     @Volatile var foreground = false
 
+    /** The user asked to update but first had to allow "Install unknown apps"; resume when they return. */
+    @Volatile var awaitingPermission = false
+
     suspend fun check(context: Context) {
         if (!enabled) return
         lock.withLock {
@@ -74,10 +78,11 @@ object Updater {
         val pm = context.packageManager
         if (!pm.canRequestPackageInstalls()) {
             if (interactive) {
-                context.startActivity(
-                    Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                )
+                awaitingPermission = true
+                val settings = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
+                // From an Activity, Back returns to Portland instead of the Settings app.
+                if (context !is Activity) settings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(settings)
             }
             return
         }

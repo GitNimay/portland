@@ -2,6 +2,7 @@ package app.portland.data
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -15,6 +16,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -45,8 +49,9 @@ class Store(private val app: Context) {
         scope.launch { block() }
     }
 
-    /** Number of items currently being copied in. */
-    val importing: StateFlow<Int> = _importing
+    /** Number of items on their way in: being copied in, or behind a pasted link that is still downloading. */
+    val importing: StateFlow<Int> = combine(_importing, Links.pending(app)) { copying, links -> copying + links }
+        .stateIn(scope, SharingStarted.Eagerly, 0)
 
     fun mediaFile(p: Pin) = File(mediaDir, "${p.id}.${p.ext}")
     fun thumbFile(p: Pin) = File(thumbDir, "${p.id}.webp")
@@ -157,16 +162,59 @@ class Store(private val app: Context) {
         }
     }
 
+    /**
+     * Adds a file downloaded elsewhere (a pasted link) as a new pin on top. The file is moved, not copied.
+     * Throws when it is not a readable image or video.
+     */
+    suspend fun addFile(file: File, mime: String, boardId: String?) {
+        val pin = withContext(Dispatchers.IO) {
+            import(mime, boardId, System.currentTimeMillis()) { media ->
+                if (!file.renameTo(media)) file.copyTo(media, overwrite = true).also { file.delete() }
+            }
+        }
+        update { it.copy(pins = listOf(pin) + it.pins) }
+        Captions.schedule(app)
+    }
+
+    // One pass at a time: the app start and every sync both ask.
+    private val colorLock = Mutex()
+
+    /** Tags pins that have no colours yet (older pins, pins from another install). Safe to call any time. */
+    suspend fun indexColors() = colorLock.withLock {
+        val todo = state.value.pins.filter { it.colors == null }
+        if (todo.isEmpty()) return@withLock
+        val found = withContext(Dispatchers.IO) {
+            todo.mapNotNull { pin ->
+                runCatching {
+                    val bytes = thumbFile(pin).takeIf { it.exists() }?.readBytes()
+                        ?: (if (R2.enabled && pin.synced) R2.get(pin.thumbKey) else null)
+                        ?: return@mapNotNull null // not available yet; a later pass picks it up
+                    val bmp = checkNotNull(BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = 4 })) { "undecodable" }
+                    pin.id to colorsOf(bmp).also { bmp.recycle() }
+                }.onFailure { Log.w("Store", "colours failed for ${pin.id}", it) }.getOrNull()
+            }.toMap()
+        }
+        if (found.isNotEmpty()) update(sync = false) { lib ->
+            lib.copy(pins = lib.pins.map { p -> found[p.id]?.takeIf { p.colors == null }?.let { p.copy(colors = it) } ?: p })
+        }
+    }
+
     private fun import(uri: Uri, boardId: String?, createdAt: Long): Pin {
         val cr = app.contentResolver
-        val mime = cr.getType(uri).orEmpty()
+        return import(cr.getType(uri).orEmpty(), boardId, createdAt) { media ->
+            checkNotNull(cr.openInputStream(uri)) { "no stream" }.use { i -> media.outputStream().use { i.copyTo(it) } }
+        }
+    }
+
+    /** Makes a pin: [write] fills the media file, then the thumbnail and colours are derived from it. */
+    private fun import(mime: String, boardId: String?, createdAt: Long, write: (File) -> Unit): Pin {
         val video = mime.startsWith("video/")
         val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: if (video) "mp4" else "jpg"
         val id = UUID.randomUUID().toString()
         val media = File(mediaDir, "$id.$ext")
         val thumbFile = File(thumbDir, "$id.webp")
         try {
-            checkNotNull(cr.openInputStream(uri)) { "no stream" }.use { i -> media.outputStream().use { i.copyTo(it) } }
+            write(media)
             var duration = 0L
             val thumb = if (video) {
                 MediaMetadataRetriever().use { r ->
@@ -183,7 +231,7 @@ class Store(private val app: Context) {
                 }
             }
             thumbFile.outputStream().use { thumb.compress(Bitmap.CompressFormat.WEBP_LOSSY, 80, it) }
-            val pin = Pin(id, video, ext, thumb.width, thumb.height, duration, boardId = boardId, createdAt = createdAt)
+            val pin = Pin(id, video, ext, thumb.width, thumb.height, duration, boardId = boardId, createdAt = createdAt, colors = colorsOf(thumb))
             thumb.recycle()
             return pin
         } catch (e: Exception) {
@@ -191,6 +239,23 @@ class Store(private val app: Context) {
             thumbFile.delete()
             throw e
         }
+    }
+
+    /** Removes the local files of pins that are no longer in the library (deleted on another install). */
+    suspend fun dropFiles(ids: Collection<String>) = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext
+        (mediaDir.listFiles().orEmpty().asList() + thumbDir.listFiles().orEmpty())
+            .filter { it.nameWithoutExtension in ids }
+            .forEach { it.delete() }
+    }
+
+    private fun colorsOf(bmp: Bitmap): List<String> {
+        // ~2k pixels is plenty to judge coverage and keeps this well under a millisecond.
+        val small = Bitmap.createScaledBitmap(bmp, 48, (48f * bmp.height / bmp.width).toInt().coerceIn(1, 96), true)
+        val px = IntArray(small.width * small.height)
+        small.getPixels(px, 0, small.width, 0, 0, small.width, small.height)
+        if (small !== bmp) small.recycle()
+        return Colors.of(px)
     }
 
     private companion object {

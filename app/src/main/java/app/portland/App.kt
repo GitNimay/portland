@@ -21,6 +21,7 @@ class App : Application(), SingletonImageLoader.Factory {
         store = Store(this)
         Sync.schedule(this) // pulls anything added from another install
         Captions.schedule(this) // finishes descriptions interrupted by a process death
+        store.launch { indexColors() } // colour-tags pins saved before colour search existed
     }
 
     override fun newImageLoader(context: PlatformContext) = ImageLoader.Builder(context)

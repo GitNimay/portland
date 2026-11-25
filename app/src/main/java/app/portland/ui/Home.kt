@@ -2,14 +2,15 @@ package app.portland.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia
-import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,6 +59,8 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -66,10 +69,12 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.portland.R
+import app.portland.data.Colors
 import app.portland.data.Library
 import app.portland.data.R2
 import app.portland.data.Release
 import app.portland.data.Updater
+import app.portland.data.search
 import app.portland.store
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
@@ -87,19 +92,9 @@ fun HomeScreen() {
     val activity = LocalActivity.current
     var tab by rememberSaveable { mutableIntStateOf(0) } // 0 = pins, 1 = boards
     var query by rememberSaveable { mutableStateOf<String?>(null) } // null = search closed
-    val pick = rememberLauncherForActivityResult(PickMultipleVisualMedia()) { uris -> store.launch { add(uris, null) } }
     val selection = rememberPinSelection()
 
-    val pins = remember(lib.pins, lib.boards, query) {
-        val q = query?.trim().orEmpty()
-        if (q.isEmpty()) lib.pins
-        else {
-            val boardHits = lib.boards.filter { it.name.contains(q, ignoreCase = true) }.mapTo(HashSet()) { it.id }
-            lib.pins.filter {
-                it.note.contains(q, ignoreCase = true) || it.caption.orEmpty().contains(q, ignoreCase = true) || it.boardId in boardHits
-            }
-        }
-    }
+    val pins = remember(lib.pins, lib.boards, query) { lib.search(query.orEmpty()) }
 
     // Hoisted so the segmented control keeps sliding while the grid swaps between pins and boards.
     val tabPos by animateFloatAsState(if (query != null) 0f else tab.toFloat(), Motion.snappy(), label = "tab")
@@ -156,9 +151,9 @@ fun HomeScreen() {
                             importing > 0 && query == null -> {}
                             lib.pins.isEmpty() -> EmptyState(
                                 "Nothing saved yet",
-                                "Tap + to add images and videos, or share them to Portland from any app.",
+                                "Tap + to add images, videos or a link, or share them to Portland from any app.",
                             )
-                            pins.isEmpty() -> EmptyState("No matches", "Nothing in your notes, descriptions or board names matches “${query?.trim()}”.")
+                            pins.isEmpty() -> EmptyState("No matches", "Nothing in your notes, descriptions, board names or colours matches “${query?.trim()}”.")
                         }
                     }
                 },
@@ -202,12 +197,7 @@ fun HomeScreen() {
                 .navigationBarsPadding()
                 .height(72.dp),
         )
-        AddButton(
-            "Add images and videos",
-            Modifier.align(Alignment.BottomEnd),
-            backdrop = backdrop,
-            visible = !selection.active,
-        ) { pick.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo)) }
+        AddMenu(backdrop, boardId = null, visible = !selection.active)
         SelectionBar(selection)
     }
 }
@@ -364,7 +354,40 @@ private fun Header(
                 }
             }
         } else {
-            Spacer(Modifier.height(12.dp))
+            // Colour swatches: one tap searches by colour. Shown until the query becomes something else.
+            val picked = Colors.query(query)
+            if (query.isBlank() || picked != null) {
+                Row(
+                    Modifier
+                        .offset { IntOffset(0, -shift().roundToInt()) }
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Colors.swatches.forEach { (name, argb) ->
+                        val on = picked?.contains(name) == true
+                        val ring by animateFloatAsState(if (on) 1f else 0f, Motion.snappy(), label = "swatch")
+                        Box(
+                            Modifier
+                                .size(32.dp)
+                                .graphicsLayer { scaleX = 1f + 0.08f * ring; scaleY = scaleX }
+                                .border(2.dp, p.ink.copy(alpha = ring), CircleShape)
+                                .padding(3.dp)
+                                .clip(CircleShape)
+                                .background(Color(argb))
+                                .border(0.5.dp, p.line, CircleShape)
+                                .semantics { contentDescription = name }
+                                .clickable(role = Role.Button, onClickLabel = "Search $name") {
+                                    haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                                    onQuery(if (on) "" else name)
+                                },
+                        )
+                    }
+                }
+            } else {
+                Spacer(Modifier.height(12.dp))
+            }
         }
     }
 }

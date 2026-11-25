@@ -134,7 +134,7 @@ fun HomeScreen() {
                 lib = lib,
                 modifier = Modifier.fillMaxSize().layerBackdrop(backdrop),
                 state = boardsState,
-                header = { Spacer(Modifier.height(with(density) { headerHeight.toDp() })) },
+                header = { Spacer(Modifier.height(with(density) { headerHeight.coerceAtLeast(1).toDp() })) },
             )
         } else {
             PinGrid(
@@ -146,7 +146,8 @@ fun HomeScreen() {
                 state = pinsState,
                 header = {
                     Column {
-                        Spacer(Modifier.height(with(density) { headerHeight.toDp() }))
+                        // Never 0 tall: a 0-height first row makes the grid anchor on the first pin, so it would open scrolled.
+                        Spacer(Modifier.height(with(density) { headerHeight.coerceAtLeast(1).toDp() }))
                         when {
                             importing > 0 && query == null -> {}
                             lib.pins.isEmpty() -> EmptyState(

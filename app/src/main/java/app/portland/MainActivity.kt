@@ -2,6 +2,7 @@ package app.portland
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -14,6 +15,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import app.portland.data.Links
 import app.portland.data.Updater
 import app.portland.ui.AppRoot
+import app.portland.ui.IntroHost
 import app.portland.ui.PortlandTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -24,7 +26,12 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         if (savedInstanceState == null) saveShared(intent) // a recreated activity re-delivers the same intent
-        setContent { PortlandTheme { AppRoot() } }
+        // The intro plays once per process, on a launch from the launcher; not for shares, rotations or warm returns.
+        val play = savedInstanceState == null && !introPlayed && intent.hasCategory(Intent.CATEGORY_LAUNCHER)
+        introPlayed = true
+        // Cut the system splash instead of letting it fade: the intro's first frame is the same picture.
+        if (play && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) splashScreen.setOnExitAnimationListener { it.remove() }
+        setContent { PortlandTheme { IntroHost(play) { AppRoot() } } }
         // Look for a newer CI build on every return to the app, and every 15 minutes while it stays open.
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -71,3 +78,6 @@ class MainActivity : ComponentActivity() {
         store.launch { add(uris, null) }
     }
 }
+
+/** Survives activity recreation but not the process: the intro is a cold-start treat, not an every-return toll. */
+private var introPlayed = false

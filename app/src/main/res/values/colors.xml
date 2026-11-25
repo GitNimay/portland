@@ -1,3 +1,6 @@
 <resources>
     <color name="canvas">#FFFFFF</color>
+    <!-- The logo in dark mode (splash and intro): a dark disc with a light mark. -->
+    <color name="logo_disc_night">#FF1C1C1E</color>
+    <color name="logo_mark_night">#FFF2F2F7</color>
 </resources>

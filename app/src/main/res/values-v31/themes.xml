@@ -3,5 +3,7 @@
         <item name="android:windowBackground">@color/canvas</item>
         <!-- Splash: the adaptive icon (white disc + mark) on the app canvas, so dark mode never flashes white. -->
         <item name="android:windowSplashScreenBackground">@color/canvas</item>
+        <!-- A fixed icon background keeps the splash icon one size (a 160dp disc) in light and dark, which the intro matches. -->
+        <item name="android:windowSplashScreenIconBackgroundColor">@android:color/white</item>
     </style>
 </resources>

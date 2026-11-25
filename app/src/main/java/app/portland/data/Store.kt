@@ -8,6 +8,7 @@ import android.net.Uri
 import android.util.AtomicFile
 import android.util.Log
 import android.webkit.MimeTypeMap
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -32,7 +33,10 @@ class Store(private val app: Context) {
     private val lock = Mutex()
     private val state = MutableStateFlow(load())
     private val _importing = MutableStateFlow(0)
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Main.immediate +
+            CoroutineExceptionHandler { _, e -> Log.e("Store", "operation failed", e) },
+    )
 
     val library: StateFlow<Library> = state
 

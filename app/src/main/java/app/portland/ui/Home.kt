@@ -1,5 +1,6 @@
 package app.portland.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia
@@ -70,12 +71,15 @@ fun HomeScreen() {
         Header(
             lib = lib,
             importing = importing,
+            matches = if (query.isNullOrBlank()) null else pins.size,
             query = query,
             onQuery = { query = it },
             tab = if (query != null) 0 else tab,
             onTab = { tab = it },
         )
     }
+
+    BackHandler(query != null) { query = null }
 
     Box(Modifier.fillMaxSize().background(p.canvas)) {
         if (tab == 1 && query == null) {
@@ -111,6 +115,7 @@ fun HomeScreen() {
 private fun Header(
     lib: Library,
     importing: Int,
+    matches: Int?,
     query: String?,
     onQuery: (String?) -> Unit,
     tab: Int,
@@ -143,14 +148,14 @@ private fun Header(
                 IconBtn(R.drawable.ic_close, "Close search") { onQuery(null) }
             }
         }
-        Text(status(lib, importing), style = Type.caption, color = p.ink3)
+        Text(matches?.let { if (it == 1) "1 match" else "$it matches" } ?: status(lib, importing), style = Type.caption, color = p.ink3)
         if (query == null) {
             Spacer(Modifier.height(24.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                 listOf("Pins", "Boards").forEachIndexed { i, label ->
                     Text(
                         label,
-                        style = Type.body.copy(fontWeight = if (i == tab) FontWeight.Medium else FontWeight.Normal),
+                        style = Type.body.copy(fontWeight = FontWeight.Medium),
                         color = if (i == tab) p.ink else p.ink3,
                         modifier = Modifier.clickable(role = Role.Tab, onClickLabel = label) { onTab(i) }.padding(vertical = 6.dp),
                     )

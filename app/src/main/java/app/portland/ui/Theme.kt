@@ -120,6 +120,8 @@ object Motion {
     fun <T> bouncy(): FiniteAnimationSpec<T> = spring(dampingRatio = 0.7f, stiffness = 158f)
     /** Touch feedback: quick in, a small settle on release. */
     fun <T> press(): FiniteAnimationSpec<T> = spring(dampingRatio = 0.6f, stiffness = 700f)
+    /** Dialogs rising from the centre: Material 3 Expressive's default spatial spring, a quick settle. */
+    fun <T> dialog(): FiniteAnimationSpec<T> = spring(dampingRatio = 0.8f, stiffness = 380f)
 }
 
 /**

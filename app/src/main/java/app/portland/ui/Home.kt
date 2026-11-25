@@ -2,9 +2,19 @@ package app.portland.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -217,46 +227,60 @@ private fun Header(
     val p = LocalPalette.current
     val haptics = LocalHapticFeedback.current
     Column(modifier.onSizeChanged { onHeaderHeight(it.height) }.statusBarsPadding()) {
-        Row(
-            Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (query == null) {
-                Spacer(Modifier.size(44.dp))
-                Text(
-                    "Portland",
-                    style = Type.body.copy(fontWeight = FontWeight.SemiBold),
-                    color = p.ink,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.weight(1f).graphicsLayer {
-                        alpha = ((progress() - 0.55f) / 0.45f).coerceIn(0f, 1f)
-                    },
-                )
-                IconBtn(R.drawable.ic_search, "Search", backdrop = backdrop) { onQuery("") }
-            } else {
-                val focus = remember { FocusRequester() }
-                LaunchedEffect(Unit) { focus.requestFocus() }
-                BasicTextField(
-                    value = query,
-                    onValueChange = { onQuery(it) },
-                    singleLine = true,
-                    textStyle = Type.body.copy(color = p.ink),
-                    cursorBrush = SolidColor(p.ink),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    modifier = Modifier.weight(1f).height(44.dp).glass(backdrop).clip(Corners.pill).padding(horizontal = 14.dp).focusRequester(focus),
-                    decorationBox = { field ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(painterResource(R.drawable.ic_search), contentDescription = null, tint = p.ink3, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Box(Modifier.weight(1f)) {
-                                if (query.isEmpty()) Text("Search", style = Type.body, color = p.ink3)
-                                field()
+        // The title row and the search field cross-fade, the arriving one growing in slightly from the centre.
+        AnimatedContent(
+            targetState = query != null,
+            transitionSpec = {
+                (fadeIn(tween(220, delayMillis = 60)) + scaleIn(Motion.smooth(), initialScale = 0.96f)) togetherWith
+                    fadeOut(tween(120)) using SizeTransform(clip = false)
+            },
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            label = "search",
+        ) { searching ->
+            Row(
+                Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (!searching) {
+                    Spacer(Modifier.size(44.dp))
+                    Text(
+                        "Portland",
+                        style = Type.body.copy(fontWeight = FontWeight.SemiBold),
+                        color = p.ink,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.weight(1f).graphicsLayer {
+                            alpha = ((progress() - 0.55f) / 0.45f).coerceIn(0f, 1f)
+                        },
+                    )
+                    IconBtn(R.drawable.ic_search, "Search", backdrop = backdrop) { onQuery("") }
+                } else {
+                    val focus = remember { FocusRequester() }
+                    LaunchedEffect(Unit) { focus.requestFocus() }
+                    BasicTextField(
+                        // While it fades out after closing, the field is empty and no longer takes input.
+                        value = query.orEmpty(),
+                        onValueChange = { onQuery(it) },
+                        enabled = query != null,
+                        singleLine = true,
+                        textStyle = Type.body.copy(color = p.ink),
+                        cursorBrush = SolidColor(p.ink),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        modifier = Modifier.weight(1f).height(44.dp).glass(backdrop).clip(Corners.pill).padding(horizontal = 14.dp).focusRequester(focus),
+                        decorationBox = { field ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(painterResource(R.drawable.ic_search), contentDescription = null, tint = p.ink3, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Box(Modifier.weight(1f)) {
+                                    if (query.isNullOrEmpty()) Text("Search", style = Type.body, color = p.ink3)
+                                    field()
+                                }
                             }
-                        }
-                    },
-                )
-                Spacer(Modifier.width(8.dp))
-                IconBtn(R.drawable.ic_close, "Close search", backdrop = backdrop) { onQuery(null) }
+                        },
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    IconBtn(R.drawable.ic_close, "Close search", backdrop = backdrop) { onQuery(null) }
+                }
             }
         }
         // Large title, caption and update pill: slide up and shrink away with the scroll.
@@ -275,15 +299,25 @@ private fun Header(
                 .padding(start = 20.dp, end = 20.dp, top = 4.dp),
         ) {
             if (query == null) Text("Portland", style = Type.display, color = p.ink)
-            Text(
-                matches?.let { if (it == 1) "1 match" else "$it matches" } ?: status(lib, importing),
-                style = Type.caption,
-                color = p.ink3,
+            // Status changes ("Adding 2…" → "backed up") cross-fade instead of snapping.
+            AnimatedContent(
+                targetState = matches?.let { if (it == 1) "1 match" else "$it matches" } ?: status(lib, importing),
+                transitionSpec = { fadeIn(tween(220, delayMillis = 60)) togetherWith fadeOut(tween(120)) using SizeTransform(clip = false) },
                 modifier = Modifier.padding(top = if (query == null) 4.dp else 0.dp),
-            )
-            if (update != null && query == null) {
+                label = "status",
+            ) { line ->
+                Text(line, style = Type.caption, color = p.ink3)
+            }
+            // Remembers the version so the pill can fold away with its text intact.
+            var lastUpdate by remember { mutableStateOf(update) }
+            if (update != null) lastUpdate = update
+            AnimatedVisibility(
+                visible = update != null && query == null,
+                enter = expandVertically(Motion.smooth(), expandFrom = Alignment.Top) + fadeIn(tween(240, delayMillis = 80)),
+                exit = shrinkVertically(Motion.smooth()) + fadeOut(tween(160)),
+            ) {
                 Text(
-                    "Version ${update.versionName} is ready · Restart",
+                    "Version ${lastUpdate?.versionName.orEmpty()} is ready · Restart",
                     style = Type.caption.copy(fontWeight = FontWeight.Medium),
                     color = p.ink,
                     modifier = Modifier

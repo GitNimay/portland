@@ -15,8 +15,11 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import app.portland.App
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
@@ -25,10 +28,9 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
- * Saves the image or video behind a pasted link, in the background. A link straight to a media file is
- * downloaded as is; for a web page, the media it advertises to link previews (og:video, og:image, …) is used.
- * shortcut: sites that hide media behind scripts or logins (YouTube, Instagram, TikTok) are not supported;
- * bundle an extractor such as yt-dlp if they are ever needed.
+ * Saves the image or video behind a pasted link, in the background: a link straight to a media file, a video on
+ * YouTube, X, Instagram, TikTok and the like (via yt-dlp, see [Video]), or the media a page advertises to link
+ * previews (og:video, og:image, …).
  */
 object Links {
     private const val TAG = "link"
@@ -52,20 +54,41 @@ object Links {
     fun pending(context: Context): Flow<Int> =
         WorkManager.getInstance(context).getWorkInfosByTagFlow(TAG).map { list -> list.count { !it.state.isFinished } }
 
-    /** Downloads the media behind [url] into [dir]. Returns the file and its MIME type. */
-    fun download(url: String, dir: File): Pair<File, String> {
-        get(url).use { r ->
-            mediaType(r)?.let { return save(r, it, dir) }
-            if (r.body.contentType()?.subtype != "html") throw NoMedia()
-            // Page: try what it advertises, videos first. A candidate that turns out not to be media is skipped.
-            val html = r.body.source().apply { request(MAX_PAGE) }.buffer.clone().readUtf8()
-            for (candidate in mediaCandidates(html, r.request.url.toString())) {
+    /**
+     * Downloads the media behind [url] into [dir] (a folder of its own, kept across retries so a long video
+     * resumes). Returns the file and its MIME type. In order: a link straight to an image or video; the video on
+     * a page, via yt-dlp (YouTube, X, Instagram, TikTok…); the media the page advertises for link previews.
+     */
+    suspend fun download(context: Context, url: String, dir: File): Downloaded {
+        dir.mkdirs()
+        // Platforms often answer a plain fetch with 4xx (login or bot walls) yet still work through yt-dlp.
+        var direct: Downloaded? = null
+        val page: Pair<String, String>? = try { // (html, final url after redirects)
+            withContext(Dispatchers.IO) {
+                get(url).use { r ->
+                    val type = mediaType(r)
+                    when {
+                        type != null -> null.also { direct = save(r, type, dir).let { (f, m) -> Downloaded(f, m) } }
+                        r.body.contentType()?.subtype != "html" -> null
+                        else -> r.body.source().apply { request(MAX_PAGE) }.buffer.clone().readUtf8() to r.request.url.toString()
+                    }
+                }
+            }
+        } catch (e: NoMedia) {
+            null
+        }
+        direct?.let { return it }
+        Video.download(context, url, File(dir, "video"))?.let { return it }
+        val (html, pageUrl) = page ?: throw NoMedia()
+        // Page: try what it advertises, videos first. A candidate that turns out not to be media is skipped.
+        return withContext(Dispatchers.IO) {
+            for (candidate in mediaCandidates(html, pageUrl)) {
                 runCatching {
-                    get(candidate).use { m -> mediaType(m)?.let { return save(m, it, dir) } }
+                    get(candidate).use { m -> mediaType(m)?.let { return@withContext save(m, it, dir).let { (f, t) -> Downloaded(f, t) } } }
                 }.onFailure { Log.w("Links", "candidate failed: $candidate", it) }
             }
+            throw NoMedia()
         }
-        throw NoMedia()
     }
 
     private fun get(url: String): Response {
@@ -142,25 +165,30 @@ class LinkWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
     override suspend fun doWork(): Result {
         val url = inputData.getString("url") ?: return Result.failure()
         val store = (applicationContext as App).store
+        // One folder per link that outlives retries, so a half-downloaded video resumes instead of starting over.
+        val dir = File(applicationContext.cacheDir, "links/$id")
         return try {
-            val (file, mime) = Links.download(url, applicationContext.cacheDir)
-            try {
-                store.addFile(file, mime, inputData.getString("board"))
-            } finally {
-                file.delete() // gone already when addFile moved it
-            }
+            val got = Links.download(applicationContext, url, dir)
+            store.addFile(got.file, got.mime, inputData.getString("board"), got.cover)
+            dir.deleteRecursively()
             Result.success()
+        } catch (e: CancellationException) {
+            throw e // stopped by the system; WorkManager reruns it and the folder lets it resume
+        } catch (e: Video.Refused) {
+            Log.w("Links", "video refused: $url", e)
+            fail(dir, e.message)
         } catch (e: IOException) {
             Log.w("Links", "will retry $url (attempt $runAttemptCount)", e)
-            if (runAttemptCount < 4) Result.retry() else fail()
+            if (runAttemptCount < 4) Result.retry() else fail(dir)
         } catch (e: Exception) {
             Log.w("Links", "giving up on $url", e)
-            fail()
+            fail(dir)
         }
     }
 
-    private fun fail(): Result {
-        val msg = "Couldn't find an image or video at that link"
+    private fun fail(dir: File, reason: String? = null): Result {
+        dir.deleteRecursively()
+        val msg = reason ?: "Couldn't find an image or video at that link"
         Handler(Looper.getMainLooper()).post { Toast.makeText(applicationContext, msg, Toast.LENGTH_LONG).show() }
         return Result.failure()
     }

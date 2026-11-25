@@ -13,6 +13,7 @@ shapes = "1.2.1"
 work = "2.12.0"
 profileinstaller = "1.4.1"
 junit = "4.13.2"
+ytdl = "0.18.1"
 orgJson = "20260814"
 
 [libraries]
@@ -34,6 +35,8 @@ shapes = { group = "io.github.kyant0", name = "shapes", version.ref = "shapes" }
 work-runtime = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
 profileinstaller = { group = "androidx.profileinstaller", name = "profileinstaller", version.ref = "profileinstaller" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+ytdl = { group = "io.github.junkfood02.youtubedl-android", name = "library", version.ref = "ytdl" }
+ytdl-ffmpeg = { group = "io.github.junkfood02.youtubedl-android", name = "ffmpeg", version.ref = "ytdl" }
 org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
 
 [plugins]

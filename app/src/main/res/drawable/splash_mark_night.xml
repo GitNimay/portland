@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The launcher mark, inverted for dark mode: light halftone on the dark splash disc. Same 108dp adaptive canvas,
+     so it sits exactly where the light-mode mark does. -->
+<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
+    android:src="@mipmap/ic_launcher_foreground"
+    android:tint="@color/logo_mark_night" />

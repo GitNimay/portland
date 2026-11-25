@@ -1,7 +1,15 @@
 package app.portland.ui
 
 import androidx.annotation.DrawableRes
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -117,7 +125,7 @@ fun PinGrid(
     ) {
         item(key = "header", span = StaggeredGridItemSpan.FullLine, contentType = "header") { header() }
         items(pins, key = { it.id }, contentType = { "pin" }) { pin ->
-            PinCard(pin, onClick = { onOpen(pins.indexOf(pin)) })
+            PinCard(pin, onClick = { onOpen(pins.indexOf(pin)) }, modifier = Modifier.animateItem())
         }
     }
 }
@@ -165,9 +173,11 @@ fun PinCard(pin: Pin, onClick: () -> Unit, modifier: Modifier = Modifier) {
                 }
             }
         }
-        if (pin.note.isNotBlank()) {
+        // Your note wins; otherwise the AI description, which arrives a second or two after adding.
+        val label = pin.note.ifBlank { pin.caption.orEmpty() }
+        RevealText(label) {
             Text(
-                pin.note,
+                it,
                 style = Type.caption,
                 color = p.ink2,
                 maxLines = 2,
@@ -176,4 +186,19 @@ fun PinCard(pin: Pin, onClick: () -> Unit, modifier: Modifier = Modifier) {
             )
         }
     }
+}
+
+/**
+ * Shows [text] when it is non-blank. Text that is already there on first composition appears
+ * instantly (scrolling stays calm); text that arrives later fades and unfolds in.
+ */
+@Composable
+fun RevealText(text: String, content: @Composable (String) -> Unit) {
+    val visible = remember { MutableTransitionState(text.isNotBlank()) }
+    visible.targetState = text.isNotBlank()
+    AnimatedVisibility(
+        visibleState = visible,
+        enter = expandVertically(tween(360, easing = FastOutSlowInEasing), expandFrom = Alignment.Top) + fadeIn(tween(480, delayMillis = 120)),
+        exit = shrinkVertically(tween(240)) + fadeOut(tween(160)),
+    ) { content(text) }
 }

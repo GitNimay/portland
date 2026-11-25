@@ -63,7 +63,9 @@ fun HomeScreen() {
         if (q.isEmpty()) lib.pins
         else {
             val boardHits = lib.boards.filter { it.name.contains(q, ignoreCase = true) }.mapTo(HashSet()) { it.id }
-            lib.pins.filter { it.note.contains(q, ignoreCase = true) || it.boardId in boardHits }
+            lib.pins.filter {
+                it.note.contains(q, ignoreCase = true) || it.caption.orEmpty().contains(q, ignoreCase = true) || it.boardId in boardHits
+            }
         }
     }
 
@@ -96,7 +98,7 @@ fun HomeScreen() {
                                 "Nothing saved yet",
                                 "Tap + to add images and videos, or share them to Portland from any app.",
                             )
-                            pins.isEmpty() -> EmptyState("No matches", "Nothing in your notes or board names matches “${query?.trim()}”.")
+                            pins.isEmpty() -> EmptyState("No matches", "Nothing in your notes, descriptions or board names matches “${query?.trim()}”.")
                         }
                     }
                 },

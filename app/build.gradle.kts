@@ -27,6 +27,7 @@ android {
         buildConfigField("String", "R2_ACCESS_KEY", r2("r2.accessKey"))
         buildConfigField("String", "R2_SECRET_KEY", r2("r2.secretKey"))
         buildConfigField("String", "R2_BUCKET", r2("r2.bucket"))
+        buildConfigField("String", "AI_TOKEN", r2("ai.token"))
     }
 
     buildTypes {

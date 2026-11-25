@@ -1,6 +1,8 @@
 package app.portland.data
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.webkit.MimeTypeMap
 import androidx.work.BackoffPolicy
@@ -15,16 +17,27 @@ import androidx.work.WorkerParameters
 import app.portland.App
 import java.util.concurrent.TimeUnit
 
-/** Mirrors the local library to R2. Every mutation schedules a run; runs replace each other to debounce bursts. */
+/**
+ * Mirrors the local library to R2. Bursts of edits are debounced in-process, then runs are chained
+ * (never replaced) so a big video upload in flight is not cancelled by a later edit.
+ */
 object Sync {
+    private val main = Handler(Looper.getMainLooper())
+    private val token = Any()
+
     fun schedule(context: Context) {
         if (!R2.enabled) return
+        val app = context.applicationContext
+        main.removeCallbacksAndMessages(token)
+        main.postDelayed({ enqueue(app) }, token, 2000)
+    }
+
+    private fun enqueue(context: Context) {
         val work = OneTimeWorkRequestBuilder<SyncWorker>()
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-            .setInitialDelay(2, TimeUnit.SECONDS)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, WorkRequest.MIN_BACKOFF_MILLIS, TimeUnit.MILLISECONDS)
             .build()
-        WorkManager.getInstance(context).enqueueUniqueWork("sync", ExistingWorkPolicy.REPLACE, work)
+        WorkManager.getInstance(context).enqueueUniqueWork("sync", ExistingWorkPolicy.APPEND_OR_REPLACE, work)
     }
 }
 

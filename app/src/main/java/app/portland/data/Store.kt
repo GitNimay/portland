@@ -80,7 +80,10 @@ class Store(private val app: Context) {
                         .getOrNull()
                 }
             }
-            if (pins.isNotEmpty()) update { it.copy(pins = pins + it.pins) }
+            if (pins.isNotEmpty()) {
+                update { it.copy(pins = pins + it.pins) }
+                Captions.schedule(app)
+            }
         } finally {
             _importing.update { it - uris.size }
         }
@@ -88,6 +91,11 @@ class Store(private val app: Context) {
 
     suspend fun setNote(id: String, note: String) = update { lib ->
         lib.copy(pins = lib.pins.map { if (it.id == id && it.note != note) it.copy(note = note, updatedAt = System.currentTimeMillis()) else it })
+    }
+
+    /** Sets the AI description once; a pin that already has one keeps it. */
+    suspend fun setCaption(id: String, caption: String) = update { lib ->
+        lib.copy(pins = lib.pins.map { if (it.id == id && it.caption == null) it.copy(caption = caption, updatedAt = System.currentTimeMillis()) else it })
     }
 
     suspend fun setBoard(ids: Collection<String>, boardId: String?) = update { lib ->

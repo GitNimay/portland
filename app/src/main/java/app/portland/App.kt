@@ -2,6 +2,7 @@ package app.portland
 
 import android.app.Application
 import android.content.Context
+import app.portland.data.Captions
 import app.portland.data.R2
 import app.portland.data.Store
 import app.portland.data.Sync
@@ -19,6 +20,7 @@ class App : Application(), SingletonImageLoader.Factory {
         super.onCreate()
         store = Store(this)
         Sync.schedule(this) // pulls anything added from another install
+        Captions.schedule(this) // finishes descriptions interrupted by a process death
     }
 
     override fun newImageLoader(context: PlatformContext) = ImageLoader.Builder(context)

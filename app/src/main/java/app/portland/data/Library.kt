@@ -15,6 +15,8 @@ data class Pin(
     val boardId: String? = null,
     val createdAt: Long,
     val updatedAt: Long = createdAt,
+    /** AI description. null = not described yet, "" = the model gave nothing usable. */
+    val caption: String? = null,
     /** Media + thumb are in R2. Local-only flag; never false for pins that came from R2. */
     val synced: Boolean = false,
 ) {
@@ -42,7 +44,8 @@ data class Library(
                     .put("w", p.w).put("h", p.h).put("dur", p.durationMs)
                     .put("note", p.note).put("board", p.boardId ?: JSONObject.NULL)
                     .put("created", p.createdAt).put("updated", p.updatedAt)
-                    .put("synced", p.synced))
+                    .put("synced", p.synced)
+                    .put("caption", p.caption ?: JSONObject.NULL))
             }
         })
         .put("boards", JSONArray().apply {
@@ -64,6 +67,7 @@ data class Library(
                         note = p.optString("note"), boardId = if (p.isNull("board")) null else p.getString("board"),
                         createdAt = p.getLong("created"), updatedAt = p.getLong("updated"),
                         synced = p.optBoolean("synced"),
+                        caption = if (p.isNull("caption")) null else p.getString("caption"),
                     )
                 }
             }

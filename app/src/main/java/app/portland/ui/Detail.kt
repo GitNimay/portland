@@ -211,6 +211,9 @@ private fun PinPage(pin: Pin, boardName: String?, active: Boolean) {
             .padding(top = 52.dp),
     ) {
         MediaBox(pin, active)
+        RevealText(pin.caption.orEmpty()) {
+            Text(it, style = Type.body, color = p.ink2, modifier = Modifier.padding(top = 16.dp))
+        }
         Spacer(Modifier.height(20.dp))
         Row(
             Modifier.fillMaxWidth().heightIn(min = 48.dp)

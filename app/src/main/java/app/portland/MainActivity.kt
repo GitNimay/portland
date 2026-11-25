@@ -39,17 +39,13 @@ class MainActivity : ComponentActivity() {
         Updater.foreground = true
         if (Updater.awaitingPermission && packageManager.canRequestPackageInstalls()) {
             Updater.awaitingPermission = false
-            store.launch { Updater.install(this@MainActivity, interactive = true) }
+            store.launch { Updater.install(this@MainActivity) }
         }
     }
 
     override fun onStop() {
         super.onStop()
         Updater.foreground = false
-        // Leaving the app is the least disruptive moment to swap in a downloaded update.
-        if (!isChangingConfigurations && store.importing.value == 0) {
-            store.launch { Updater.install(applicationContext, interactive = false) }
-        }
     }
 
     override fun onNewIntent(intent: Intent) {

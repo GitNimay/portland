@@ -1,6 +1,7 @@
 package app.portland.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia
@@ -57,7 +58,7 @@ fun HomeScreen() {
     val lib by store.library.collectAsStateWithLifecycle()
     val importing by store.importing.collectAsStateWithLifecycle()
     val update by Updater.ready.collectAsStateWithLifecycle()
-    val context = LocalContext.current
+    val activity = LocalActivity.current
     var tab by rememberSaveable { mutableIntStateOf(0) } // 0 = pins, 1 = boards
     var query by rememberSaveable { mutableStateOf<String?>(null) } // null = search closed
     val pick = rememberLauncherForActivityResult(PickMultipleVisualMedia()) { uris -> store.launch { add(uris, null) } }
@@ -79,7 +80,7 @@ fun HomeScreen() {
             importing = importing,
             matches = if (query.isNullOrBlank()) null else pins.size,
             update = update,
-            onUpdate = { store.launch { Updater.install(context, interactive = true) } },
+            onUpdate = { activity?.let { a -> store.launch { Updater.install(a) } } },
             query = query,
             onQuery = { query = it },
             tab = if (query != null) 0 else tab,

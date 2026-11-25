@@ -38,7 +38,7 @@ One user API token scoped to *Workers AI Read/Write* plus *R2 Bucket Item Read/W
 
 Push to `main` and GitHub Actions (`.github/workflows/android.yml`) tests, builds and signs the release. It then uploads the APK and `releases/latest.json` to R2 and creates a GitHub Release.
 
-The installed app checks `latest.json` every time it opens and every 15 minutes while it stays open. It downloads a newer build in the background and checks its SHA-256. Then it installs itself the moment you leave the app, or straight away if you tap "Restart" in the header. On Android 12+ a self-update needs no prompt once Portland has been allowed to "Install unknown apps" (asked once).
+The installed app checks `latest.json` every time it opens and every 15 minutes while it stays open. It downloads a newer build in the background and checks its SHA-256, then shows "Version … is ready · Restart" in the header. Tapping it installs the update and reopens Portland. Android 12+ needs no installer prompt for a self-update once Portland may "Install unknown apps" (asked once), but Google Play Protect still asks to scan each new build of a sideloaded app from an unverified developer.
 
 The signing key (`release.jks`, git-ignored) and its password must never be lost or changed: Android only accepts updates signed with the same key. Keep a copy somewhere safe. CI has it as the `RELEASE_KEYSTORE` secret.
 

@@ -34,8 +34,9 @@ data class Release(val versionCode: Int, val versionName: String, val apk: Strin
 }
 
 /**
- * Self-updates from CI builds in R2: download in the background, verify, then install silently
- * (Android 12+ lets an app update itself without a prompt once "Install unknown apps" is allowed).
+ * Self-updates from CI builds in R2: download in the background, verify, then install when the user
+ * taps Restart. Android 12+ needs no installer prompt for a self-update, but Play Protect still scans
+ * each new build of an unverified sideloaded app, so installs only start while the user is here to see it.
  */
 object Updater {
     // Debug builds are signed with a different key, so a CI build could never replace them.
@@ -68,24 +69,18 @@ object Updater {
         }
     }
 
-    /**
-     * Installs the ready build. [interactive] = the user asked for it, so we may open the one-time
-     * "Install unknown apps" setting; otherwise (app in background) we only install if it can be silent.
-     */
-    suspend fun install(context: Context, interactive: Boolean) {
+    /** Installs the ready build, first asking once for "Install unknown apps" if needed. Pass an Activity. */
+    suspend fun install(activity: Activity) {
         val release = _ready.value ?: return
-        relaunchMarker(context).apply { if (interactive) createNewFile() else delete() }
-        val pm = context.packageManager
+        val pm = activity.packageManager
         if (!pm.canRequestPackageInstalls()) {
-            if (interactive) {
-                awaitingPermission = true
-                val settings = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
-                // From an Activity, Back returns to Portland instead of the Settings app.
-                if (context !is Activity) settings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(settings)
-            }
+            awaitingPermission = true
+            // Started from the Activity, so Back returns to Portland rather than the Settings app.
+            activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}")))
             return
         }
+        val context = activity.applicationContext
+        relaunchMarker(context).createNewFile()
         withContext(Dispatchers.IO) {
             val apk = apkFile(context)
             if (sha256(apk) != release.sha256) throw IOException("update apk changed on disk")

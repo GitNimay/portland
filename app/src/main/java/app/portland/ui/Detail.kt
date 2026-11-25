@@ -27,12 +27,10 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -49,7 +47,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -75,6 +75,7 @@ import app.portland.data.Pin
 import app.portland.data.R2
 import app.portland.store
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import kotlinx.coroutines.Dispatchers
@@ -188,24 +189,15 @@ fun DetailScreen(ids: List<String>, start: Int) {
         }
     }
 
-    if (confirm) AlertDialog(
-        onDismissRequest = { confirm = false },
-        title = { FrostBehind(); Text("Delete this pin?", style = Type.body.copy(fontWeight = FontWeight.SemiBold), color = p.ink) },
-        text = { Text("It will be removed from this phone and your backup.", style = Type.caption, color = p.ink2) },
-        confirmButton = {
-            TextButton(onClick = {
-                confirm = false
-                val id = current.id
-                // The pager moves on to the next pin; deleting the last one pops via the empty check above.
-                store.launch { deletePins(listOf(id)) }
-            }) { Text("Delete", style = Type.body.copy(fontWeight = FontWeight.SemiBold), color = p.danger) }
+    if (confirm) DeletePinsDialog(
+        count = 1,
+        onDismiss = { confirm = false },
+        onConfirm = {
+            confirm = false
+            val id = current.id
+            // The pager moves on to the next pin; deleting the last one pops via the empty check above.
+            store.launch { deletePins(listOf(id)) }
         },
-        dismissButton = {
-            TextButton(onClick = { confirm = false }) { Text("Cancel", style = Type.body, color = p.ink) }
-        },
-        shape = Corners.sheet,
-        containerColor = frostedSheet(),
-        tonalElevation = 0.dp,
     )
 }
 
@@ -303,6 +295,7 @@ private fun MediaBox(pin: Pin, active: Boolean) {
     val fullModel = remember(pin.id) { store.media(pin) }
     val desc = pin.note.ifBlank { null }
     var zoom by remember(pin.id) { mutableStateOf(false) }
+    var loaded by remember(pin.id) { mutableStateOf(false) }
     val ratio = pin.w.toFloat() / pin.h.coerceAtLeast(1)
 
     Box(
@@ -311,13 +304,15 @@ private fun MediaBox(pin: Pin, active: Boolean) {
             .fillMaxWidth()
             .aspectRatio(ratio)
             .clip(Corners.media)
-            .background(p.fill),
+            .background(p.fill)
+            .then(if (loaded) Modifier else Modifier.shimmer(p.shimmer)),
     ) {
         // The thumbnail shows instantly and stays under the video until frames arrive.
         AsyncImage(
             model = thumbModel,
             contentDescription = null,
             contentScale = ContentScale.Fit,
+            onState = { if (it is AsyncImagePainter.State.Success || it is AsyncImagePainter.State.Error) loaded = true },
             modifier = Modifier.matchParentSize(),
         )
         if (pin.video) {
@@ -361,6 +356,7 @@ private fun VideoLayer(pin: Pin, active: Boolean, modifier: Modifier = Modifier)
     val context = LocalContext.current
     val store = context.store
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val haptics = LocalHapticFeedback.current
     val holder = remember(pin.id) { mutableStateOf<ExoPlayer?>(null) }
     var playing by remember(pin.id) { mutableStateOf(true) }
     var duration by remember(pin.id) { mutableLongStateOf(pin.durationMs) }
@@ -418,6 +414,7 @@ private fun VideoLayer(pin: Pin, active: Boolean, modifier: Modifier = Modifier)
             PlayerSurface(exo, Modifier.matchParentSize(), SURFACE_TYPE_TEXTURE_VIEW)
             Box(
                 Modifier.matchParentSize().clickable(onClickLabel = if (playing) "Pause" else "Play") {
+                    haptics.performHapticFeedback(if (exo.isPlaying) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
                     if (exo.isPlaying) exo.pause() else exo.play()
                 },
             )

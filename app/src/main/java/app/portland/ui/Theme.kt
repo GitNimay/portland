@@ -66,6 +66,7 @@ data class Palette(
     val thumb: Color,  // selected segment of a segmented control
     val danger: Color, // destructive actions (Apple systemRed)
     val dark: Boolean,
+    val shimmer: Color, // the light that sweeps over a loading placeholder
 )
 
 private val Light = Palette(
@@ -73,12 +74,14 @@ private val Light = Palette(
     ink3 = Color.Black.copy(0.56f), line = Color.Black.copy(0.10f), fill = Color(0x1F767680),
     sheet = Color(0xFFF9F9F9), glass = Color.White.copy(0.14f), glassFlat = Color(0x1A767680),
     glassSolid = Color(0xF2F6F6F8), thumb = Color.White, danger = Color(0xFFFF3B30), dark = false,
+    shimmer = Color.White.copy(0.7f),
 )
 private val Dark = Palette(
     canvas = Color.Black, ink = Color.White, ink2 = Color.White.copy(0.60f),
     ink3 = Color.White.copy(0.48f), line = Color.White.copy(0.14f), fill = Color(0x3D767680),
     sheet = Color(0xFF1C1C1E), glass = Color.Black.copy(0.10f), glassFlat = Color.White.copy(0.09f),
     glassSolid = Color(0xF21C1C1E), thumb = Color.White.copy(0.20f), danger = Color(0xFFFF453A), dark = true,
+    shimmer = Color.White.copy(0.07f),
 )
 
 private fun geist(weight: Int) =

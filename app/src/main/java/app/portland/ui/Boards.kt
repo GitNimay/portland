@@ -68,7 +68,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -85,6 +87,7 @@ import app.portland.data.Library
 import app.portland.data.Pin
 import app.portland.store
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import kotlinx.coroutines.launch
@@ -188,13 +191,16 @@ private fun BoardCell(board: Board, pins: List<Pin>, onClick: () -> Unit) {
 
 @Composable
 private fun CoverCell(pin: Pin?, modifier: Modifier) {
+    val p = LocalPalette.current
     val store = LocalContext.current.store
-    Box(modifier) {
+    var loaded by remember(pin?.id) { mutableStateOf(false) }
+    Box(if (pin == null || loaded) modifier else modifier.shimmer(p.shimmer)) {
         if (pin != null) {
             AsyncImage(
                 model = remember(pin.id) { store.thumb(pin) },
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
+                onState = { loaded = it is AsyncImagePainter.State.Success || it is AsyncImagePainter.State.Error },
                 modifier = Modifier.matchParentSize(),
             )
         }
@@ -213,6 +219,8 @@ fun BoardScreen(id: String) {
     var renaming by remember { mutableStateOf(false) }
     var confirming by remember { mutableStateOf(false) }
     val pick = rememberLauncherForActivityResult(PickMultipleVisualMedia()) { uris -> store.launch { add(uris, id) } }
+    val importing by store.importing.collectAsStateWithLifecycle()
+    val selection = rememberPinSelection()
     val backdrop = rememberLayerBackdrop {
         drawRect(p.canvas)
         drawContent()
@@ -236,11 +244,13 @@ fun BoardScreen(id: String) {
             pins = pins,
             onOpen = { i -> nav.push(Screen.Detail(pins.map { it.id }, i)) },
             modifier = Modifier.fillMaxSize().layerBackdrop(backdrop),
+            selection = selection,
+            loading = importing,
             state = grid,
             header = {
                 Column {
                     Spacer(Modifier.height(with(density) { headerHeight.toDp() }))
-                    if (pins.isEmpty()) EmptyState("No pins yet", "Tap + to add images and videos to this board.")
+                    if (pins.isEmpty() && importing == 0) EmptyState("No pins yet", "Tap + to add images and videos to this board.")
                 }
             },
         )
@@ -344,9 +354,10 @@ fun BoardScreen(id: String) {
                 .navigationBarsPadding()
                 .height(72.dp),
         )
-        AddButton("Add images and videos", Modifier.align(Alignment.BottomEnd), backdrop = backdrop) {
+        AddButton("Add images and videos", Modifier.align(Alignment.BottomEnd), backdrop = backdrop, visible = !selection.active) {
             pick.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo))
         }
+        SelectionBar(selection)
     }
 
     if (renaming) {
@@ -382,6 +393,9 @@ fun BoardScreen(id: String) {
 @Composable
 fun BoardPickerSheet(current: String?, onPick: (String?) -> Unit, onDismiss: () -> Unit) {
     val p = LocalPalette.current
+    val haptics = LocalHapticFeedback.current
+    // Filing a pin is a small commitment; a confirm tick says it landed.
+    val choose: (String?) -> Unit = { haptics.performHapticFeedback(HapticFeedbackType.Confirm); onPick(it) }
     val store = LocalContext.current.store
     val scope = rememberCoroutineScope()
     val lib by store.library.collectAsStateWithLifecycle()
@@ -410,7 +424,7 @@ fun BoardPickerSheet(current: String?, onPick: (String?) -> Unit, onDismiss: () 
             }
             item(key = "none") {
                 PickerRow("No board", selected = current == null, visual = { ClearGlyph() }) {
-                    onPick(null)
+                    choose(null)
                     onDismiss()
                 }
             }
@@ -418,7 +432,7 @@ fun BoardPickerSheet(current: String?, onPick: (String?) -> Unit, onDismiss: () 
                 val board = lib.boards[i]
                 val latest = lib.pins.firstOrNull { it.boardId == board.id }
                 PickerRow(board.name, selected = current == board.id, visual = { BoardThumb(latest) }) {
-                    onPick(board.id)
+                    choose(board.id)
                     onDismiss()
                 }
             }
@@ -430,7 +444,7 @@ fun BoardPickerSheet(current: String?, onPick: (String?) -> Unit, onDismiss: () 
             naming = false
             scope.launch {
                 val newId = store.createBoard(name)
-                onPick(newId)
+                choose(newId)
                 onDismiss()
             }
         }

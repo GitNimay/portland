@@ -45,6 +45,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.portland.R
 import app.portland.data.Library
 import app.portland.data.R2
+import app.portland.data.Release
+import app.portland.data.Updater
 import app.portland.store
 
 @Composable
@@ -54,6 +56,8 @@ fun HomeScreen() {
     val nav = LocalNav.current
     val lib by store.library.collectAsStateWithLifecycle()
     val importing by store.importing.collectAsStateWithLifecycle()
+    val update by Updater.ready.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     var tab by rememberSaveable { mutableIntStateOf(0) } // 0 = pins, 1 = boards
     var query by rememberSaveable { mutableStateOf<String?>(null) } // null = search closed
     val pick = rememberLauncherForActivityResult(PickMultipleVisualMedia()) { uris -> store.launch { add(uris, null) } }
@@ -74,6 +78,8 @@ fun HomeScreen() {
             lib = lib,
             importing = importing,
             matches = if (query.isNullOrBlank()) null else pins.size,
+            update = update,
+            onUpdate = { store.launch { Updater.install(context.applicationContext, interactive = true) } },
             query = query,
             onQuery = { query = it },
             tab = if (query != null) 0 else tab,
@@ -118,6 +124,8 @@ private fun Header(
     lib: Library,
     importing: Int,
     matches: Int?,
+    update: Release?,
+    onUpdate: () -> Unit,
     query: String?,
     onQuery: (String?) -> Unit,
     tab: Int,
@@ -151,6 +159,14 @@ private fun Header(
             }
         }
         Text(matches?.let { if (it == 1) "1 match" else "$it matches" } ?: status(lib, importing), style = Type.caption, color = p.ink3)
+        if (update != null && query == null) {
+            Text(
+                "Version ${update.versionName} is ready · Restart",
+                style = Type.caption.copy(fontWeight = FontWeight.Medium),
+                color = p.ink,
+                modifier = Modifier.padding(top = 4.dp).clickable(role = Role.Button, onClickLabel = "Restart to update", onClick = onUpdate),
+            )
+        }
         if (query == null) {
             Spacer(Modifier.height(24.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {

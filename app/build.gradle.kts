@@ -5,11 +5,16 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-// R2 credentials live in local.properties (git-ignored). Empty values = local-only mode.
+// Secrets come from local.properties (git-ignored) on a dev machine, or from env vars in CI
+// (e.g. r2.accessKey <- R2_ACCESS_KEY). Missing R2/AI values = local-only mode.
 val local = Properties().apply {
     rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use(::load)
 }
-fun r2(key: String) = "\"${local.getProperty(key, "")}\""
+fun secret(key: String): String? =
+    System.getenv(key.replace(Regex("([a-z])([A-Z])"), "$1_$2").replace('.', '_').uppercase()) ?: local.getProperty(key)
+fun field(key: String) = "\"${secret(key).orEmpty()}\""
+// CI passes the run number so every published build is newer than the last.
+val ciVersion = System.getenv("VERSION_CODE")?.toInt()
 
 android {
     namespace = "app.portland"
@@ -19,15 +24,25 @@ android {
 
     defaultConfig {
         applicationId = "app.portland"
-        minSdk = 29
+        minSdk = 30
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
-        buildConfigField("String", "R2_ACCOUNT_ID", r2("r2.accountId"))
-        buildConfigField("String", "R2_ACCESS_KEY", r2("r2.accessKey"))
-        buildConfigField("String", "R2_SECRET_KEY", r2("r2.secretKey"))
-        buildConfigField("String", "R2_BUCKET", r2("r2.bucket"))
-        buildConfigField("String", "AI_TOKEN", r2("ai.token"))
+        versionCode = ciVersion ?: 1
+        versionName = "1.0.${ciVersion ?: 0}"
+        buildConfigField("String", "R2_ACCOUNT_ID", field("r2.accountId"))
+        buildConfigField("String", "R2_ACCESS_KEY", field("r2.accessKey"))
+        buildConfigField("String", "R2_SECRET_KEY", field("r2.secretKey"))
+        buildConfigField("String", "R2_BUCKET", field("r2.bucket"))
+        buildConfigField("String", "AI_TOKEN", field("ai.token"))
+    }
+
+    signingConfigs {
+        // One permanent key: every self-update must be signed with it, or Android refuses to install it.
+        create("release") {
+            secret("release.storeFile")?.let { storeFile = rootProject.file(it) }
+            storePassword = secret("release.password")
+            keyAlias = secret("release.alias")
+            keyPassword = secret("release.password")
+        }
     }
 
     buildTypes {
@@ -35,8 +50,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
-            // Personal sideloaded app: sign release with the debug key so it installs without a keystore.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (secret("release.storeFile") != null) "release" else "debug")
         }
     }
     buildFeatures {

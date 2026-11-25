@@ -7,8 +7,15 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.content.IntentCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import app.portland.data.Updater
 import app.portland.ui.AppRoot
 import app.portland.ui.PortlandTheme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.minutes
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -16,6 +23,29 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         if (savedInstanceState == null) saveShared(intent) // a recreated activity re-delivers the same intent
         setContent { PortlandTheme { AppRoot() } }
+        // Look for a newer CI build on every return to the app, and every 15 minutes while it stays open.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (true) {
+                    Updater.check(applicationContext)
+                    delay(15.minutes)
+                }
+            }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        Updater.foreground = true
+    }
+
+    override fun onStop() {
+        super.onStop()
+        Updater.foreground = false
+        // Leaving the app is the least disruptive moment to swap in a downloaded update.
+        if (!isChangingConfigurations && store.importing.value == 0) {
+            store.launch { Updater.install(applicationContext, interactive = false) }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {

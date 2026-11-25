@@ -32,6 +32,14 @@ One user API token scoped to *Workers AI Read/Write* plus *R2 Bucket Item Read/W
 ./gradlew :app:assembleRelease     # R8-shrunk APK (~4.5 MB), signed with the debug key for sideloading
 ```
 
+## Releases and updates
+
+Push to `main` and GitHub Actions (`.github/workflows/android.yml`) tests, builds and signs the release. It then uploads the APK and `releases/latest.json` to R2 and creates a GitHub Release.
+
+The installed app checks `latest.json` every time it opens and every 15 minutes while it stays open. It downloads a newer build in the background and checks its SHA-256. Then it installs itself the moment you leave the app, or straight away if you tap "Restart" in the header. On Android 12+ a self-update needs no prompt once Portland has been allowed to "Install unknown apps" (asked once).
+
+The signing key (`release.jks`, git-ignored) and its password must never be lost or changed: Android only accepts updates signed with the same key. Keep a copy somewhere safe. CI has it as the `RELEASE_KEYSTORE` secret.
+
 ## How it works
 
 - `data/Store.kt`: the whole library is one in-memory `StateFlow`, persisted atomically as `library.json`; media and 560px WebP thumbnails sit in app-private storage.

@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -46,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
@@ -75,6 +75,8 @@ import app.portland.data.Pin
 import app.portland.data.R2
 import app.portland.store
 import coil3.compose.AsyncImage
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -109,11 +111,12 @@ fun DetailScreen(ids: List<String>, start: Int) {
     val current = pins.getOrNull(pager.currentPage) ?: pins.first()
     var menu by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf(false) }
+    val backdrop = rememberLayerBackdrop { drawRect(p.canvas); drawContent() }
 
     Box(Modifier.fillMaxSize().background(p.canvas)) {
         HorizontalPager(
             state = pager,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().layerBackdrop(backdrop),
             beyondViewportPageCount = 1,
             key = { pins[it].id },
         ) { page ->
@@ -125,13 +128,27 @@ fun DetailScreen(ids: List<String>, start: Int) {
             )
         }
 
+        // Keeps content from running under the status bar icons.
+        Box(
+            Modifier.fillMaxWidth()
+                .background(
+                    Brush.verticalGradient(
+                        0f to p.canvas.copy(alpha = 0.96f),
+                        0.6f to p.canvas.copy(alpha = 0.7f),
+                        1f to p.canvas.copy(alpha = 0f),
+                    ),
+                )
+                .statusBarsPadding()
+                .height(64.dp),
+        )
+
         Row(
-            Modifier.fillMaxWidth().background(p.canvas).statusBarsPadding().padding(horizontal = 4.dp, vertical = 2.dp),
+            Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconBtn(R.drawable.ic_back, "Back") { nav.pop() }
+            IconBtn(R.drawable.ic_back, "Back", backdrop = backdrop) { nav.pop() }
             Spacer(Modifier.weight(1f))
-            IconBtn(R.drawable.ic_share, "Share") {
+            IconBtn(R.drawable.ic_share, "Share", backdrop = backdrop) {
                 val pin = current
                 store.launch {
                     val local = mediaFile(pin)
@@ -148,13 +165,21 @@ fun DetailScreen(ids: List<String>, start: Int) {
                     shareFile(context, file, pin)
                 }
             }
+            Spacer(Modifier.width(8.dp))
             Box {
-                IconBtn(R.drawable.ic_more, "More") { menu = true }
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                IconBtn(R.drawable.ic_more, "More", backdrop = backdrop) { menu = true }
+                DropdownMenu(
+                    expanded = menu,
+                    onDismissRequest = { menu = false },
+                    shape = Corners.menu,
+                    containerColor = p.sheet,
+                    tonalElevation = 0.dp,
+                    shadowElevation = 16.dp,
+                ) {
                     DropdownMenuItem(
-                        text = { Text("Delete", style = Type.body, color = p.ink) },
+                        text = { Text("Delete", style = Type.body, color = p.danger) },
                         leadingIcon = {
-                            Icon(painterResource(R.drawable.ic_trash), null, tint = p.ink, modifier = Modifier.size(20.dp))
+                            Icon(painterResource(R.drawable.ic_trash), null, tint = p.danger, modifier = Modifier.size(20.dp))
                         },
                         onClick = { menu = false; confirm = true },
                     )
@@ -165,7 +190,7 @@ fun DetailScreen(ids: List<String>, start: Int) {
 
     if (confirm) AlertDialog(
         onDismissRequest = { confirm = false },
-        title = { Text("Delete this pin?", style = Type.body.copy(fontWeight = FontWeight.Medium), color = p.ink) },
+        title = { FrostBehind(); Text("Delete this pin?", style = Type.body.copy(fontWeight = FontWeight.SemiBold), color = p.ink) },
         text = { Text("It will be removed from this phone and your backup.", style = Type.caption, color = p.ink2) },
         confirmButton = {
             TextButton(onClick = {
@@ -173,12 +198,14 @@ fun DetailScreen(ids: List<String>, start: Int) {
                 val id = current.id
                 // The pager moves on to the next pin; deleting the last one pops via the empty check above.
                 store.launch { deletePins(listOf(id)) }
-            }) { Text("Delete", style = Type.body.copy(fontWeight = FontWeight.Medium), color = p.ink) }
+            }) { Text("Delete", style = Type.body.copy(fontWeight = FontWeight.SemiBold), color = p.danger) }
         },
         dismissButton = {
-            TextButton(onClick = { confirm = false }) { Text("Cancel", style = Type.body, color = p.ink2) }
+            TextButton(onClick = { confirm = false }) { Text("Cancel", style = Type.body, color = p.ink) }
         },
-        containerColor = p.canvas,
+        shape = Corners.sheet,
+        containerColor = frostedSheet(),
+        tonalElevation = 0.dp,
     )
 }
 
@@ -207,21 +234,24 @@ private fun PinPage(pin: Pin, boardName: String?, active: Boolean) {
             .imePadding()
             .navigationBarsPadding()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 12.dp)
-            .padding(top = 52.dp),
+            .padding(horizontal = 16.dp)
+            .padding(top = 64.dp),
     ) {
         MediaBox(pin, active)
         RevealText(pin.caption.orEmpty()) {
-            Text(it, style = Type.body, color = p.ink2, modifier = Modifier.padding(top = 16.dp))
+            Text(it, style = Type.body, color = p.ink2, modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 20.dp))
         }
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(24.dp))
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                .clickable(role = Role.Button, onClickLabel = "Change board") { picker = true },
+            Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                .glass(null, Corners.card)
+                .clip(Corners.card)
+                .clickable(role = Role.Button, onClickLabel = "Change board") { picker = true }
+                .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(painterResource(R.drawable.ic_bookmark), null, tint = p.ink, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(12.dp))
             Text(
                 boardName ?: "No board",
                 style = Type.body.copy(fontWeight = FontWeight.Medium),
@@ -232,15 +262,13 @@ private fun PinPage(pin: Pin, boardName: String?, active: Boolean) {
             )
             Icon(painterResource(R.drawable.ic_chevron_down), null, tint = p.ink3, modifier = Modifier.size(18.dp))
         }
-        Spacer(Modifier.height(16.dp))
-        Box(Modifier.fillMaxWidth().height(1.dp).background(p.line))
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
         BasicTextField(
             value = text,
             onValueChange = { text = it },
             textStyle = Type.body.copy(color = p.ink),
             cursorBrush = SolidColor(p.ink),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().glass(null, Corners.card).clip(Corners.card).heightIn(min = 104.dp).padding(16.dp),
             decorationBox = { field ->
                 Box {
                     if (text.isEmpty()) Text("Add a note", style = Type.body, color = p.ink3)
@@ -248,8 +276,12 @@ private fun PinPage(pin: Pin, boardName: String?, active: Boolean) {
                 }
             },
         )
-        Spacer(Modifier.height(12.dp))
-        Text("Saved ${savedDate(pin.createdAt)}", style = Type.caption, color = p.ink3)
+        Text(
+            "Saved ${savedDate(pin.createdAt)}",
+            style = Type.caption,
+            color = p.ink3,
+            modifier = Modifier.padding(start = 4.dp, top = 12.dp),
+        )
         Spacer(Modifier.height(48.dp))
     }
 
@@ -278,7 +310,7 @@ private fun MediaBox(pin: Pin, active: Boolean) {
             .sharedPin(pin.id)
             .fillMaxWidth()
             .aspectRatio(ratio)
-            .clip(RoundedCornerShape(20.dp))
+            .clip(Corners.media)
             .background(p.fill),
     ) {
         // The thumbnail shows instantly and stays under the video until frames arrive.
@@ -304,18 +336,20 @@ private fun MediaBox(pin: Pin, active: Boolean) {
         onDismissRequest = { zoom = false },
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
+        val zoomBackdrop = rememberLayerBackdrop { drawRect(Color.Black); drawContent() }
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             ZoomableAsyncImage(
                 model = fullModel,
                 contentDescription = desc,
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().layerBackdrop(zoomBackdrop),
             )
             IconBtn(
                 R.drawable.ic_close,
                 "Close",
-                Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(8.dp),
+                Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(16.dp),
                 tint = Color.White,
+                backdrop = zoomBackdrop,
             ) { zoom = false }
         }
     }
@@ -389,10 +423,10 @@ private fun VideoLayer(pin: Pin, active: Boolean, modifier: Modifier = Modifier)
             )
             if (duration > 0) {
                 Row(
-                    Modifier.align(Alignment.BottomStart).padding(10.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color.Black.copy(alpha = 0.44f))
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    Modifier.align(Alignment.BottomStart).padding(12.dp)
+                        .clip(Corners.pill)
+                        .background(Color.Black.copy(alpha = 0.40f))
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(

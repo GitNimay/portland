@@ -76,6 +76,8 @@ dependencies {
     implementation(libs.media3.okhttp)
     implementation(libs.media3.ui.compose)
     implementation(libs.telephoto.coil)
+    implementation(libs.backdrop)
+    implementation(libs.shapes)
     implementation(libs.work.runtime)
     implementation(libs.profileinstaller)
     debugImplementation(libs.compose.ui.tooling)

@@ -166,9 +166,9 @@ class Store(private val app: Context) {
      * Adds a file downloaded elsewhere (a pasted link) as a new pin on top. The file is moved, not copied.
      * Throws when it is not a readable image or video.
      */
-    suspend fun addFile(file: File, mime: String, boardId: String?) {
+    suspend fun addFile(file: File, mime: String, boardId: String?, cover: File? = null) {
         val pin = withContext(Dispatchers.IO) {
-            import(mime, boardId, System.currentTimeMillis()) { media ->
+            import(mime, boardId, System.currentTimeMillis(), cover) { media ->
                 if (!file.renameTo(media)) file.copyTo(media, overwrite = true).also { file.delete() }
             }
         }
@@ -206,8 +206,11 @@ class Store(private val app: Context) {
         }
     }
 
-    /** Makes a pin: [write] fills the media file, then the thumbnail and colours are derived from it. */
-    private fun import(mime: String, boardId: String?, createdAt: Long, write: (File) -> Unit): Pin {
+    /**
+     * Makes a pin: [write] fills the media file, then the thumbnail and colours are derived from it. A video's
+     * thumbnail is its [cover] (the poster the site chose) when there is one, else a frame from early on.
+     */
+    private fun import(mime: String, boardId: String?, createdAt: Long, cover: File? = null, write: (File) -> Unit): Pin {
         val video = mime.startsWith("video/")
         val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: if (video) "mp4" else "jpg"
         val id = UUID.randomUUID().toString()
@@ -216,22 +219,25 @@ class Store(private val app: Context) {
         try {
             write(media)
             var duration = 0L
+            var w: Int
+            var h: Int
             val thumb = if (video) {
-                MediaMetadataRetriever().use { r ->
+                val frame = MediaMetadataRetriever().use { r ->
                     r.setDataSource(media.path)
                     duration = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0
-                    checkNotNull(r.getScaledFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, THUMB_MAX, THUMB_MAX)) { "no frame" }
+                    // A tenth of the way in (at most 3s): videos often open on black or a title card.
+                    val at = (duration * 100).coerceAtMost(3_000_000L) // µs
+                    checkNotNull(r.getScaledFrameAtTime(at, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, THUMB_MAX, THUMB_MAX)) { "no frame" }
                 }
+                // The card keeps the video's own shape; a cover of another shape is cropped to it on screen.
+                w = frame.width
+                h = frame.height
+                cover?.let { runCatching { decodeScaled(it) }.getOrNull() }?.also { frame.recycle() } ?: frame
             } else {
-                ImageDecoder.decodeBitmap(ImageDecoder.createSource(media)) { d, info, _ ->
-                    // Scale by the short side so the math holds before and after EXIF rotation.
-                    val s = minOf(1f, THUMB_SHORT.toFloat() / minOf(info.size.width, info.size.height))
-                    d.setTargetSize((info.size.width * s).toInt().coerceAtLeast(1), (info.size.height * s).toInt().coerceAtLeast(1))
-                    d.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-                }
+                decodeScaled(media).also { w = it.width; h = it.height }
             }
             thumbFile.outputStream().use { thumb.compress(Bitmap.CompressFormat.WEBP_LOSSY, 80, it) }
-            val pin = Pin(id, video, ext, thumb.width, thumb.height, duration, boardId = boardId, createdAt = createdAt, colors = colorsOf(thumb))
+            val pin = Pin(id, video, ext, w, h, duration, boardId = boardId, createdAt = createdAt, colors = colorsOf(thumb))
             thumb.recycle()
             return pin
         } catch (e: Exception) {
@@ -239,6 +245,14 @@ class Store(private val app: Context) {
             thumbFile.delete()
             throw e
         }
+    }
+
+    /** An image scaled so its short side is at most THUMB_SHORT, in software memory (compress and getPixels need it). */
+    private fun decodeScaled(file: File): Bitmap = ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { d, info, _ ->
+        // Scale by the short side so the math holds before and after EXIF rotation.
+        val s = minOf(1f, THUMB_SHORT.toFloat() / minOf(info.size.width, info.size.height))
+        d.setTargetSize((info.size.width * s).toInt().coerceAtLeast(1), (info.size.height * s).toInt().coerceAtLeast(1))
+        d.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
     }
 
     /** Removes the local files of pins that are no longer in the library (deleted on another install). */

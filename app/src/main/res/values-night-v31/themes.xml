@@ -1,0 +1,9 @@
+<resources>
+    <style name="Theme.Portland" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/canvas</item>
+        <item name="android:windowSplashScreenBackground">@color/canvas</item>
+        <!-- Dark mode: a dark disc with a light mark instead of a glaring white disc. The intro draws the same. -->
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/logo_disc_night</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_mark_night</item>
+    </style>
+</resources>

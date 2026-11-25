@@ -39,6 +39,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -155,7 +156,7 @@ fun BoxScope.AddMenu(backdrop: Backdrop, boardId: String?, visible: Boolean = tr
                             open = false
                             pick.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo))
                         },
-                        onSaved = { open = false },
+                        onClose = { open = false },
                     )
                     Box(Modifier.size(FabSize), contentAlignment = Alignment.Center) {
                         Icon(painterResource(R.drawable.ic_plus), contentDescription = null, tint = p.ink, modifier = Modifier.size(24.dp))
@@ -188,7 +189,8 @@ fun BoxScope.AddMenu(backdrop: Backdrop, boardId: String?, visible: Boolean = tr
                 val h = lerp(fab.toFloat(), panel.height.toFloat(), grow).roundToInt().coerceAtLeast(fab)
                 layout(w, h) {
                     // Content is pinned to the bottom-right corner, where the button was, so it unfolds from there.
-                    panel.placeWithLayer(w - panel.width, h - panel.height) {
+                    // Folded away it is not placed at all, so its invisible controls cannot catch the button's taps.
+                    if (t > 0.001f) panel.placeWithLayer(w - panel.width, h - panel.height) {
                         val c = ((t - 0.3f) / 0.7f).coerceIn(0f, 1f)
                         alpha = c
                         scaleX = lerp(0.92f, 1f, c)
@@ -209,7 +211,7 @@ fun BoxScope.AddMenu(backdrop: Backdrop, boardId: String?, visible: Boolean = tr
 
 /** What the panel offers. Laid out at full size; [AddMenu] reveals it as the glass grows. */
 @Composable
-private fun AddPanel(boardId: String?, open: Boolean, onPick: () -> Unit, onSaved: () -> Unit) {
+private fun AddPanel(boardId: String?, open: Boolean, onPick: () -> Unit, onClose: () -> Unit) {
     val p = LocalPalette.current
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
@@ -240,7 +242,7 @@ private fun AddPanel(boardId: String?, open: Boolean, onPick: () -> Unit, onSave
         }
         haptics.performHapticFeedback(HapticFeedbackType.Confirm)
         Links.enqueue(context, url, boardId)
-        onSaved()
+        onClose()
     }
 
     // While folded away the panel is invisible, so screen readers must not find it either.
@@ -249,8 +251,25 @@ private fun AddPanel(boardId: String?, open: Boolean, onPick: () -> Unit, onSave
             .then(if (open) Modifier else Modifier.clearAndSetSemantics {})
             .padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 16.dp),
     ) {
-        Text("Add to Portland", style = Type.body.copy(fontWeight = FontWeight.SemiBold), color = p.ink, modifier = Modifier.padding(start = 4.dp))
-        Spacer(Modifier.height(14.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Add to Portland",
+                style = Type.body.copy(fontWeight = FontWeight.SemiBold),
+                color = p.ink,
+                modifier = Modifier.weight(1f).padding(start = 4.dp),
+            )
+            Box(
+                Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(p.fill)
+                    .clickable(enabled = open, role = Role.Button, onClickLabel = "Close", onClick = onClose),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(painterResource(R.drawable.ic_close), contentDescription = "Close", tint = p.ink2, modifier = Modifier.size(16.dp))
+            }
+        }
+        Spacer(Modifier.height(12.dp))
         Option(R.drawable.ic_photo, "Photos & videos", "Choose from your library", enabled = open, onClick = onPick)
         Spacer(Modifier.height(10.dp))
         val linkFocus = remember { FocusRequester() }
@@ -314,14 +333,14 @@ private fun AddPanel(boardId: String?, open: Boolean, onPick: () -> Unit, onSave
                 }
             }
         }
-        Text(
-            if (error) "That doesn't look like a link" else "Downloads in the background. Works with links to images, videos and pages that share one.",
-            style = Type.caption,
-            color = if (error) p.danger else p.ink3,
-            modifier = Modifier
-                .padding(start = 4.dp, top = 10.dp, end = 64.dp) // clears the corner the button folds back into
-                .semantics { liveRegion = LiveRegionMode.Polite },
-        )
+        RevealText(if (error) "That doesn't look like a link" else "") {
+            Text(
+                it,
+                style = Type.caption,
+                color = p.danger,
+                modifier = Modifier.padding(start = 4.dp, top = 10.dp).semantics { liveRegion = LiveRegionMode.Polite },
+            )
+        }
     }
 }
 

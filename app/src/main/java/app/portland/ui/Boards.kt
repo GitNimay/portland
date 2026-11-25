@@ -244,7 +244,7 @@ fun BoardScreen(id: String) {
             state = grid,
             header = {
                 Column {
-                    Spacer(Modifier.height(with(density) { headerHeight.toDp() }))
+                    Spacer(Modifier.height(with(density) { headerHeight.coerceAtLeast(1).toDp() }))
                     if (pins.isEmpty() && importing == 0) EmptyState("No pins yet", "Tap + to add images, videos or a link to this board.")
                 }
             },

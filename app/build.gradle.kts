@@ -33,6 +33,9 @@ android {
         buildConfigField("String", "R2_SECRET_KEY", field("r2.secretKey"))
         buildConfigField("String", "R2_BUCKET", field("r2.bucket"))
         buildConfigField("String", "AI_TOKEN", field("ai.token"))
+        // yt-dlp ships native Python and ffmpeg per ABI (~25 MB each), so release builds carry phones' ABI only.
+        // Emulator testing: ./gradlew assembleRelease -Pabis=x86_64
+        ndk { abiFilters += (findProperty("abis") as String? ?: "arm64-v8a").split(",") }
     }
 
     signingConfigs {
@@ -49,9 +52,13 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName(if (secret("release.storeFile") != null) "release" else "debug")
         }
+    }
+    packaging {
+        // yt-dlp's Python runtime is loaded from extracted files, not mapped from the APK.
+        jniLibs.useLegacyPackaging = true
     }
     buildFeatures {
         compose = true
@@ -80,6 +87,8 @@ dependencies {
     implementation(libs.shapes)
     implementation(libs.work.runtime)
     implementation(libs.profileinstaller)
+    implementation(libs.ytdl)
+    implementation(libs.ytdl.ffmpeg)
     debugImplementation(libs.compose.ui.tooling)
     testImplementation(libs.junit)
     testImplementation(libs.org.json)

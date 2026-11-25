@@ -8,7 +8,7 @@ A private, single-user inspiration safe for Android. Save images and videos, sor
 
 - Masonry feed of everything you've saved, newest first
 - Tap + and the glass button morphs into a panel: pick from the photo library, or paste a link
-- Links (pasted, or shared to Portland as text) download in the background, even with the app closed: direct image/video URLs and pages that advertise one (og:video, og:image). Script-only sites such as YouTube or Instagram are not supported
+- Links (pasted, or shared to Portland as text) download in the background, even with the app closed: videos from YouTube, X, Instagram, TikTok and the many other sites yt-dlp supports (up to 1080p, H.264, with the site's own cover as the preview), direct image/video URLs, and pages that advertise an image (og:image). Sites that demand a login or a bot check say so in a toast instead of saving a thumbnail
 - Boards, notes, search (notes, AI descriptions, board names, and colours: "blue", "red pink", "grey" or a tap on a swatch)
 - Viewer: swipe between pins, pinch-zoom images, looping video
 - Every pin is backed up to Cloudflare R2; a fresh install restores the whole library
@@ -32,7 +32,8 @@ One user API token scoped to *Workers AI Read/Write* plus *R2 Bucket Item Read/W
 
 ```sh
 ./gradlew :app:testDebugUnitTest   # JVM tests: SigV4, sync merge, captions
-./gradlew :app:assembleRelease     # R8-shrunk APK (~4.5 MB), signed with the debug key for sideloading
+./gradlew :app:assembleRelease     # R8-shrunk APK for phones (arm64), signed with the release key
+./gradlew :app:assembleRelease -Pabis=x86_64   # the same for an x86_64 emulator
 ```
 
 ## Releases and updates
@@ -49,6 +50,7 @@ The signing key (`release.jks`, git-ignored) and its password must never be lost
 - `data/Sync.kt`: a WorkManager job uploads pending media, purges deleted objects, then merges `index.json` with R2 (last write wins, deletions win). It then lists the bucket and deletes any media or thumbnail no pin uses: deleted pins at once, unknown objects after 24 hours (another install may be mid-upload). It never sweeps unless the remote index was read, so R2 holds exactly the live library.
 - `data/Colors.kt`: colour search without AI. Each thumbnail is bucketed pixel by pixel (HSV) into 12 named colours; names covering enough of the image (5% for colours, 20% for black/white/gray) are stored on the pin and synced in the index.
 - `data/Links.kt`: a WorkManager job per link, so downloads survive the app closing and retry on network errors.
+- `data/Video.kt`: on-device yt-dlp (youtubedl-android, with its own Python and ffmpeg; about 50 MB of the APK). It updates yt-dlp itself once a day, since sites change faster than app releases.
 - `data/R2.kt`: a hand-written SigV4 OkHttp interceptor, so Coil and ExoPlayer stream straight from the private bucket.
 - `data/Captions.kt`: sends the thumbnail to `@cf/mistralai/mistral-small-3.1-24b-instruct`, four at a time. It was the fastest and most concrete of the vision models benchmarked.
 - UI: Jetpack Compose, Geist, three type sizes (28/16/13sp), a monochrome alpha-ink palette, light and dark.

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Media is backed up to R2, not Google backup. -->
+<data-extraction-rules>
+    <cloud-backup><exclude domain="file" path="."/></cloud-backup>
+    <device-transfer><exclude domain="file" path="."/></device-transfer>
+</data-extraction-rules>

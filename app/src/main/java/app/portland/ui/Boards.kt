@@ -1,9 +1,5 @@
 package app.portland.ui
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia
-import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -218,7 +214,6 @@ fun BoardScreen(id: String) {
     var menu by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var confirming by remember { mutableStateOf(false) }
-    val pick = rememberLauncherForActivityResult(PickMultipleVisualMedia()) { uris -> store.launch { add(uris, id) } }
     val importing by store.importing.collectAsStateWithLifecycle()
     val selection = rememberPinSelection()
     val backdrop = rememberLayerBackdrop {
@@ -250,7 +245,7 @@ fun BoardScreen(id: String) {
             header = {
                 Column {
                     Spacer(Modifier.height(with(density) { headerHeight.toDp() }))
-                    if (pins.isEmpty() && importing == 0) EmptyState("No pins yet", "Tap + to add images and videos to this board.")
+                    if (pins.isEmpty() && importing == 0) EmptyState("No pins yet", "Tap + to add images, videos or a link to this board.")
                 }
             },
         )
@@ -354,9 +349,7 @@ fun BoardScreen(id: String) {
                 .navigationBarsPadding()
                 .height(72.dp),
         )
-        AddButton("Add images and videos", Modifier.align(Alignment.BottomEnd), backdrop = backdrop, visible = !selection.active) {
-            pick.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo))
-        }
+        AddMenu(backdrop, boardId = id, visible = !selection.active)
         SelectionBar(selection)
     }
 

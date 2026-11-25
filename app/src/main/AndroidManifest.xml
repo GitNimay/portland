@@ -24,12 +24,14 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- text/plain: a shared link; the image or video behind it is downloaded in the background. -->
             <intent-filter android:label="Save to Portland">
                 <action android:name="android.intent.action.SEND" />
                 <action android:name="android.intent.action.SEND_MULTIPLE" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="image/*" />
                 <data android:mimeType="video/*" />
+                <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
         <receiver android:name=".data.InstallStatusReceiver" android:exported="false" />

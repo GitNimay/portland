@@ -121,33 +121,6 @@ fun IconBtn(
     }
 }
 
-/** The one primary action: a clear glass circle with a plus, floating bottom-right. Steps aside while pins are selected. */
-@Composable
-fun AddButton(label: String, modifier: Modifier = Modifier, backdrop: Backdrop? = null, visible: Boolean = true, onClick: () -> Unit) {
-    val p = LocalPalette.current
-    val press = remember { MutableInteractionSource() }
-    val pressed by press.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) 1.1f else 1f, Motion.press(), label = "press")
-    AnimatedVisibility(
-        visible,
-        modifier,
-        enter = scaleIn(Motion.bouncy(), initialScale = 0.6f) + fadeIn(),
-        exit = scaleOut(tween(160), targetScale = 0.6f) + fadeOut(tween(160)),
-    ) {
-        Box(
-            Modifier
-                .navigationBarsPadding()
-                .padding(20.dp)
-                .glass(backdrop, Corners.pill, scale = { scale })
-                .size(56.dp)
-                .clickable(interactionSource = press, indication = null, role = Role.Button, onClickLabel = label, onClick = onClick),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(painterResource(R.drawable.ic_plus), contentDescription = label, tint = p.ink, modifier = Modifier.size(24.dp))
-        }
-    }
-}
-
 @Composable
 fun EmptyState(title: String, body: String, modifier: Modifier = Modifier) {
     val p = LocalPalette.current

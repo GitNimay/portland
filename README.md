@@ -7,8 +7,9 @@ A private, single-user inspiration safe for Android. Save images and videos, sor
 ## Features
 
 - Masonry feed of everything you've saved, newest first
-- Add from the system photo picker, or share images and videos to Portland from any app
-- Boards, notes, search (notes, AI descriptions, board names)
+- Tap + and the glass button morphs into a panel: pick from the photo library, or paste a link
+- Links (pasted, or shared to Portland as text) download in the background, even with the app closed: direct image/video URLs and pages that advertise one (og:video, og:image). Script-only sites such as YouTube or Instagram are not supported
+- Boards, notes, search (notes, AI descriptions, board names, and colours: "blue", "red pink", "grey" or a tap on a swatch)
 - Viewer: swipe between pins, pinch-zoom images, looping video
 - Every pin is backed up to Cloudflare R2; a fresh install restores the whole library
 - Each new pin is described by Workers AI in the background (~1–2s) and the description fades into the feed
@@ -45,7 +46,9 @@ The signing key (`release.jks`, git-ignored) and its password must never be lost
 ## How it works
 
 - `data/Store.kt`: the whole library is one in-memory `StateFlow`, persisted atomically as `library.json`; media and 560px WebP thumbnails sit in app-private storage.
-- `data/Sync.kt`: a WorkManager job uploads pending media, purges deleted objects, then merges `index.json` with R2 (last write wins, deletions win).
+- `data/Sync.kt`: a WorkManager job uploads pending media, purges deleted objects, then merges `index.json` with R2 (last write wins, deletions win). It then lists the bucket and deletes any media or thumbnail no pin uses: deleted pins at once, unknown objects after 24 hours (another install may be mid-upload). It never sweeps unless the remote index was read, so R2 holds exactly the live library.
+- `data/Colors.kt`: colour search without AI. Each thumbnail is bucketed pixel by pixel (HSV) into 12 named colours; names covering enough of the image (5% for colours, 20% for black/white/gray) are stored on the pin and synced in the index.
+- `data/Links.kt`: a WorkManager job per link, so downloads survive the app closing and retry on network errors.
 - `data/R2.kt`: a hand-written SigV4 OkHttp interceptor, so Coil and ExoPlayer stream straight from the private bucket.
 - `data/Captions.kt`: sends the thumbnail to `@cf/mistralai/mistral-small-3.1-24b-instruct`, four at a time. It was the fastest and most concrete of the vision models benchmarked.
 - UI: Jetpack Compose, Geist, three type sizes (28/16/13sp), a monochrome alpha-ink palette, light and dark.

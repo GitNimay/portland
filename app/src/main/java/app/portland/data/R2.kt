@@ -4,6 +4,7 @@ import app.portland.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
@@ -119,12 +120,47 @@ object R2 {
         }
     }
 
+    /** Every object under [prefix] with its last-modified time (epoch ms), following pagination. */
+    suspend fun list(prefix: String): List<Pair<String, Long>> = withContext(Dispatchers.IO) {
+        val out = ArrayList<Pair<String, Long>>()
+        var token: String? = null
+        do {
+            val url = endpoint.toHttpUrl().newBuilder()
+                .addQueryParameter("list-type", "2")
+                .addQueryParameter("prefix", prefix)
+                .apply { token?.let { addQueryParameter("continuation-token", it) } }
+                .build()
+            val xml = http.newCall(Request.Builder().url(url).build()).execute().use { r ->
+                if (!r.isSuccessful) throw IOException("LIST $prefix -> ${r.code}")
+                r.body.string()
+            }
+            val page = parseList(xml)
+            out += page.first
+            token = page.second
+        } while (token != null)
+        out
+    }
+
     private fun send(request: Request, method: String, key: String) {
         http.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IOException("$method $key -> ${response.code}")
         }
     }
 }
+
+/** One ListObjectsV2 page: (key, lastModified ms) pairs, and the continuation token when there are more. */
+internal fun parseList(xml: String): Pair<List<Pair<String, Long>>, String?> {
+    fun tag(s: String, name: String) = Regex("<$name>([^<]*)</$name>").find(s)?.groupValues?.get(1)
+    val items = Regex("<Contents>(.*?)</Contents>", RegexOption.DOT_MATCHES_ALL).findAll(xml).mapNotNull { m ->
+        val key = tag(m.groupValues[1], "Key")?.xmlUnescape() ?: return@mapNotNull null
+        key to (tag(m.groupValues[1], "LastModified")?.let { Instant.parse(it).toEpochMilli() } ?: 0L)
+    }.toList()
+    val more = tag(xml, "IsTruncated") == "true"
+    return items to if (more) tag(xml, "NextContinuationToken")?.xmlUnescape() else null
+}
+
+private fun String.xmlUnescape() =
+    replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&")
 
 private fun queryOf(url: HttpUrl): Map<String, String> =
     url.queryParameterNames.associateWith { url.queryParameter(it).orEmpty() }

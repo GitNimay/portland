@@ -9,7 +9,7 @@ A private, single-user inspiration safe for Android. Save images and videos, sor
 - Masonry feed of everything you've saved, newest first
 - Tap + and the glass button morphs into a panel: pick from the photo library, or paste a link
 - Links (pasted, or shared to Portland as text) download in the background, even with the app closed: videos from YouTube, X, Instagram, TikTok and the many other sites yt-dlp supports (up to 1080p, H.264, with the site's own cover as the preview), direct image/video URLs, and pages that advertise an image (og:image). Sites that demand a login or a bot check say so in a toast instead of saving a thumbnail
-- Boards, notes, search (notes, AI descriptions, board names, and colours: "blue", "red pink", "grey" or a tap on a swatch)
+- Boards, notes, search (notes, AI descriptions, board names, and colours: "blue", "red pink" or "grey")
 - Viewer: swipe between pins, pinch-zoom images, looping video
 - Every pin is backed up to Cloudflare R2; a fresh install restores the whole library
 - Each new pin is described by Workers AI in the background (~1–2s) and the description fades into the feed

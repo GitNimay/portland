@@ -381,10 +381,19 @@ fun BoardScreen(id: String) {
     }
 }
 
-/** Bottom sheet to choose a board for a pin; null = no board. */
+/**
+ * Bottom sheet to choose a board for a pin; null = no board. [current] is checked unless [known] is
+ * false, which is how a mixed multi-selection says "no single board".
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BoardPickerSheet(current: String?, onPick: (String?) -> Unit, onDismiss: () -> Unit) {
+fun BoardPickerSheet(
+    current: String?,
+    onPick: (String?) -> Unit,
+    onDismiss: () -> Unit,
+    known: Boolean = true,
+    title: String = "Save to board",
+) {
     val p = LocalPalette.current
     val haptics = LocalHapticFeedback.current
     // Filing a pin is a small commitment; a confirm tick says it landed.
@@ -405,7 +414,7 @@ fun BoardPickerSheet(current: String?, onPick: (String?) -> Unit, onDismiss: () 
     ) {
         FrostBehind()
         Text(
-            "Save to board",
+            title,
             style = Type.body.copy(fontWeight = FontWeight.SemiBold),
             color = p.ink,
             textAlign = TextAlign.Center,
@@ -416,7 +425,7 @@ fun BoardPickerSheet(current: String?, onPick: (String?) -> Unit, onDismiss: () 
                 PickerRow("New board", selected = false, visual = { AddGlyph() }) { naming = true }
             }
             item(key = "none") {
-                PickerRow("No board", selected = current == null, visual = { ClearGlyph() }) {
+                PickerRow("No board", selected = known && current == null, visual = { ClearGlyph() }) {
                     choose(null)
                     onDismiss()
                 }
@@ -424,7 +433,7 @@ fun BoardPickerSheet(current: String?, onPick: (String?) -> Unit, onDismiss: () 
             items(lib.boards.size, key = { lib.boards[it].id }) { i ->
                 val board = lib.boards[i]
                 val latest = lib.pins.firstOrNull { it.boardId == board.id }
-                PickerRow(board.name, selected = current == board.id, visual = { BoardThumb(latest) }) {
+                PickerRow(board.name, selected = known && current == board.id, visual = { BoardThumb(latest) }) {
                     choose(board.id)
                     onDismiss()
                 }

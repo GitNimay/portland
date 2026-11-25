@@ -5,13 +5,10 @@ package app.portland.data
  * and the names that cover enough of the image are stored on the pin so "blue" finds every blue pin.
  */
 object Colors {
-    /** The searchable names, in the order the search swatches show them, with their swatch colour (ARGB). */
-    val swatches: List<Pair<String, Long>> = listOf(
-        "red" to 0xFFE5484D, "orange" to 0xFFF76B15, "yellow" to 0xFFFFC53D, "green" to 0xFF30A46C,
-        "teal" to 0xFF12A594, "blue" to 0xFF0090FF, "purple" to 0xFF8E4EC6, "pink" to 0xFFE93D82,
-        "brown" to 0xFF8D6346, "black" to 0xFF111111, "gray" to 0xFF8B8D98, "white" to 0xFFF5F5F5,
+    /** The searchable colour names. */
+    private val names = setOf(
+        "red", "orange", "yellow", "green", "teal", "blue", "purple", "pink", "brown", "black", "gray", "white",
     )
-    private val names = swatches.mapTo(HashSet()) { it.first }
 
     private val aliases = mapOf(
         "grey" to "gray", "silver" to "gray", "violet" to "purple", "lavender" to "purple", "lilac" to "purple",

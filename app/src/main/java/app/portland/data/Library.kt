@@ -133,3 +133,9 @@ fun Library.search(q: String): List<Pin> {
     // Stable sort: pins where the colours dominate first, ties stay newest first; text-only hits go last.
     return hits.sortedBy { p -> colors.sumOf { c -> p.colors.orEmpty().indexOf(c).let { if (it < 0) 99 else it } } }
 }
+
+/** The board every pin in [ids] sits in: (true, id-or-null) if they agree, (false, null) if mixed or empty. */
+fun Library.sharedBoard(ids: Set<String>): Pair<Boolean, String?> {
+    val boards = pins.filter { it.id in ids }.mapTo(HashSet()) { it.boardId }
+    return if (boards.size == 1) true to boards.first() else false to null
+}

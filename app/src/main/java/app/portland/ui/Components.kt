@@ -81,6 +81,7 @@ import androidx.compose.ui.unit.dp
 import app.portland.R
 import app.portland.data.Captions
 import app.portland.data.Pin
+import app.portland.data.sharedBoard
 import app.portland.store
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
@@ -371,6 +372,9 @@ fun BoxScope.SelectionBar(selection: PinSelection) {
     val store = LocalContext.current.store
     val haptics = LocalHapticFeedback.current
     var confirm by remember { mutableStateOf(false) }
+    // Ids being filed, captured when the sheet opens: the selection is cleared on pick, and the
+    // sheet's own animation out must not see it change underneath.
+    var filing by remember { mutableStateOf<Set<String>?>(null) }
     // Keeps the count steady while the bar slides away after clearing.
     var shown by remember { mutableIntStateOf(0) }
     if (selection.active) shown = selection.ids.size
@@ -399,11 +403,31 @@ fun BoxScope.SelectionBar(selection: PinSelection) {
             ) { n ->
                 Text("$n selected", style = Type.body.copy(fontWeight = FontWeight.SemiBold), color = p.ink)
             }
+            IconBtn(R.drawable.ic_bookmark, "Add selected to board") {
+                haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
+                filing = selection.ids
+            }
             IconBtn(R.drawable.ic_trash, "Delete selected") {
                 haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
                 confirm = true
             }
         }
+    }
+
+    filing?.let { ids ->
+        // Read once on open; a check only makes sense if every picked pin agrees.
+        val (known, current) = remember(ids) { store.library.value.sharedBoard(ids) }
+        BoardPickerSheet(
+            current = current,
+            known = known,
+            title = if (ids.size == 1) "Save to board" else "Save ${ids.size} pins to board",
+            onPick = { boardId ->
+                filing = null
+                selection.clear()
+                store.launch { setBoard(ids, boardId) }
+            },
+            onDismiss = { filing = null },
+        )
     }
 
     if (confirm) DeletePinsDialog(

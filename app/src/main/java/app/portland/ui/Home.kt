@@ -64,7 +64,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -109,12 +108,16 @@ fun HomeScreen() {
     val grid = if (tab == 1 && query == null) boardsState else pinsState
     var headerHeight by remember { mutableIntStateOf(0) } // the whole pinned header, status bar included
     var largeHeight by remember { mutableIntStateOf(0) } // only the large-title block that scrolls away
+    // Past the large title the Pins/Boards control keeps rising until it docks in the top bar beside search,
+    // so the collapsed header is a single row and the feed gets the rest of the screen.
+    val dock = if (query == null) with(density) { TabDock.roundToPx() } else 0
+    val collapse = largeHeight + dock
 
     // Collapse tied 1:1 to the finger, but gliding when the grid swaps (tab change or search).
     val shift = remember { Animatable(0f) }
-    LaunchedEffect(grid, largeHeight) {
+    LaunchedEffect(grid, collapse) {
         var first = true
-        snapshotFlow { grid.headerScroll().coerceAtMost(largeHeight.toFloat()) }.collect { target ->
+        snapshotFlow { grid.headerScroll().coerceAtMost(collapse.toFloat()) }.collect { target ->
             if (first) {
                 first = false
                 shift.animateTo(target, Motion.smooth())
@@ -123,7 +126,8 @@ fun HomeScreen() {
             }
         }
     }
-    val progress = { if (largeHeight == 0) 0f else shift.value / largeHeight } // 0 expanded .. 1 collapsed
+    // 0 expanded .. 1 once the large title has scrolled away (the tabs may still be docking).
+    val progress = { if (largeHeight == 0) 0f else (shift.value / largeHeight).coerceAtMost(1f) }
 
     val edgeBottom = with(density) { 12.dp.roundToPx() }
     val edgeSpan = with(density) { 24.dp.toPx() }
@@ -235,7 +239,7 @@ private fun Header(
                 fadeIn(tween(220, delayMillis = 60)) togetherWith fadeOut(tween(120)) using SizeTransform(clip = false)
             },
             contentAlignment = Alignment.Center,
-            modifier = Modifier.fillMaxWidth().height(56.dp),
+            modifier = Modifier.fillMaxWidth().height(TopBarHeight),
             label = "search",
         ) { searching ->
             Row(
@@ -243,16 +247,8 @@ private fun Header(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (!searching) {
-                    Spacer(Modifier.size(44.dp))
-                    Text(
-                        "Portland",
-                        style = Type.body.copy(fontWeight = FontWeight.SemiBold),
-                        color = p.ink,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.weight(1f).graphicsLayer {
-                            alpha = ((progress() - 0.55f) / 0.45f).coerceIn(0f, 1f)
-                        },
-                    )
+                    // No collapsed title: the Pins/Boards control docks on this side once scrolled.
+                    Spacer(Modifier.weight(1f))
                     IconBtn(R.drawable.ic_search, "Search", backdrop = backdrop) { onQuery("") }
                 } else {
                     val focus = remember { FocusRequester() }
@@ -334,12 +330,12 @@ private fun Header(
             Box(
                 Modifier
                     .offset { IntOffset(0, -shift().roundToInt()) }
-                    .padding(start = 20.dp, top = 16.dp, bottom = 12.dp),
+                    .padding(start = 20.dp, top = TabGap, bottom = 12.dp),
             ) {
                 Box(
                     Modifier
                         .width(220.dp)
-                        .height(36.dp)
+                        .height(TabHeight)
                         .glass(backdrop)
                         .clip(Corners.pill)
                         .padding(3.dp),
@@ -398,3 +394,10 @@ private fun status(lib: Library, importing: Int): String {
         else -> "$saved · backed up"
     }
 }
+
+private val TopBarHeight = 56.dp
+private val TabHeight = 36.dp
+private val TabGap = 16.dp // between the large title block and the tabs
+
+/** Extra collapse after the large title so the tabs end up vertically centred in the top bar, level with search. */
+private val TabDock = TopBarHeight + TabGap - (TopBarHeight - TabHeight) / 2

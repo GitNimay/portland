@@ -5,6 +5,7 @@ import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -48,12 +49,11 @@ import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
 import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -63,6 +63,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -125,7 +126,17 @@ fun IconBtn(
 @Composable
 fun EmptyState(title: String, body: String, modifier: Modifier = Modifier) {
     val p = LocalPalette.current
-    Column(modifier.padding(horizontal = 4.dp, vertical = 48.dp)) {
+    // Drifts up into place rather than popping in under the header.
+    val shown = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { shown.animateTo(1f, Motion.smooth()) }
+    Column(
+        modifier
+            .graphicsLayer {
+                alpha = shown.value
+                translationY = (1f - shown.value) * 12.dp.toPx()
+            }
+            .padding(horizontal = 4.dp, vertical = 48.dp),
+    ) {
         Text(title, style = Type.body.copy(fontWeight = FontWeight.SemiBold), color = p.ink)
         Spacer(Modifier.height(6.dp))
         Text(body, style = Type.caption, color = p.ink2)
@@ -387,30 +398,34 @@ fun BoxScope.SelectionBar(selection: PinSelection) {
         enter = slideInVertically(Motion.snappy()) { -it } + fadeIn(),
         exit = slideOutVertically(tween(200)) { -it } + fadeOut(tween(200)),
     ) {
-        Row(
-            Modifier.fillMaxWidth().background(p.canvas).statusBarsPadding().height(56.dp).padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconBtn(R.drawable.ic_close, "Cancel selection") { selection.clear() }
-            AnimatedContent(
-                shown,
-                transitionSpec = {
-                    val up = targetState > initialState
-                    (slideInVertically { if (up) it else -it } + fadeIn()) togetherWith (slideOutVertically { if (up) -it else it } + fadeOut())
-                },
-                modifier = Modifier.weight(1f).padding(start = 4.dp),
-                label = "count",
-            ) { n ->
-                Text("$n selected", style = Type.body.copy(fontWeight = FontWeight.SemiBold), color = p.ink)
+        Column {
+            Row(
+                Modifier.fillMaxWidth().background(p.canvas).statusBarsPadding().height(56.dp).padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconBtn(R.drawable.ic_close, "Cancel selection") { selection.clear() }
+                AnimatedContent(
+                    shown,
+                    transitionSpec = {
+                        val up = targetState > initialState
+                        (slideInVertically { if (up) it else -it } + fadeIn()) togetherWith (slideOutVertically { if (up) -it else it } + fadeOut())
+                    },
+                    modifier = Modifier.weight(1f).padding(start = 4.dp),
+                    label = "count",
+                ) { n ->
+                    Text("$n selected", style = Type.body.copy(fontWeight = FontWeight.SemiBold), color = p.ink)
+                }
+                IconBtn(R.drawable.ic_bookmark, "Add selected to board") {
+                    haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
+                    filing = selection.ids
+                }
+                IconBtn(R.drawable.ic_trash, "Delete selected") {
+                    haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
+                    confirm = true
+                }
             }
-            IconBtn(R.drawable.ic_bookmark, "Add selected to board") {
-                haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
-                filing = selection.ids
-            }
-            IconBtn(R.drawable.ic_trash, "Delete selected") {
-                haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
-                confirm = true
-            }
+            // A soft edge instead of a hard cut where the grid slides under the bar.
+            Box(Modifier.fillMaxWidth().height(16.dp).background(Brush.verticalGradient(listOf(p.canvas, p.canvas.copy(alpha = 0f)))))
         }
     }
 
@@ -445,37 +460,13 @@ fun BoxScope.SelectionBar(selection: PinSelection) {
 /** Asks before deleting [count] pins; plays the confirm haptic when the user goes ahead. */
 @Composable
 fun DeletePinsDialog(count: Int, onDismiss: () -> Unit, onConfirm: () -> Unit) {
-    val p = LocalPalette.current
-    val haptics = LocalHapticFeedback.current
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        shape = Corners.sheet,
-        containerColor = frostedSheet(),
-        tonalElevation = 0.dp,
-        title = {
-            FrostBehind()
-            Text(
-                if (count == 1) "Delete this pin?" else "Delete $count pins?",
-                style = Type.body.copy(fontWeight = FontWeight.SemiBold),
-                color = p.ink,
-            )
-        },
-        text = {
-            Text(
-                if (count == 1) "It will be removed from this phone and your backup." else "They will be removed from this phone and your backup.",
-                style = Type.caption,
-                color = p.ink2,
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                onConfirm()
-            }) { Text("Delete", style = Type.body.copy(fontWeight = FontWeight.SemiBold), color = p.danger) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel", style = Type.body, color = p.ink) }
-        },
+    PortlandDialog(
+        title = if (count == 1) "Delete this pin?" else "Delete $count pins?",
+        body = if (count == 1) "It will be removed from this phone and your backup." else "They will be removed from this phone and your backup.",
+        confirmLabel = "Delete",
+        destructive = true,
+        onConfirm = onConfirm,
+        onDismiss = onDismiss,
     )
 }
 

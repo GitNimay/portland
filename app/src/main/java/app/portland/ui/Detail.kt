@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.SystemClock
 import android.webkit.MimeTypeMap
 import androidx.annotation.OptIn
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -352,7 +353,20 @@ private fun MediaBox(pin: Pin, active: Boolean) {
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
         val zoomBackdrop = rememberLayerBackdrop { drawRect(Color.Black); drawContent() }
-        Box(Modifier.fillMaxSize().background(Color.Black)) {
+        // Opens like a lightbox: the black fades up while the image grows the last few percent into place.
+        val open = remember { Animatable(0f) }
+        LaunchedEffect(Unit) { open.animateTo(1f, Motion.smooth()) }
+        Box(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    alpha = open.value
+                    val s = 0.94f + 0.06f * open.value
+                    scaleX = s
+                    scaleY = s
+                }
+                .background(Color.Black),
+        ) {
             ZoomableAsyncImage(
                 model = fullModel,
                 contentDescription = desc,

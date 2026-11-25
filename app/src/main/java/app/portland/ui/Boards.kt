@@ -34,7 +34,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -42,7 +41,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -298,10 +296,16 @@ fun BoardScreen(id: String) {
                     ) {
                         DropdownMenuItem(
                             text = { Text("Rename", style = Type.body, color = p.ink) },
+                            leadingIcon = {
+                                Icon(painterResource(R.drawable.ic_edit), null, tint = p.ink, modifier = Modifier.size(20.dp))
+                            },
                             onClick = { menu = false; renaming = true },
                         )
                         DropdownMenuItem(
                             text = { Text("Delete board", style = Type.body, color = p.danger) },
+                            leadingIcon = {
+                                Icon(painterResource(R.drawable.ic_trash), null, tint = p.danger, modifier = Modifier.size(20.dp))
+                            },
                             onClick = { menu = false; confirming = true },
                         )
                     }
@@ -360,23 +364,17 @@ fun BoardScreen(id: String) {
         }
     }
     if (confirming) {
-        AlertDialog(
-            onDismissRequest = { confirming = false },
-            shape = Corners.sheet,
-            containerColor = frostedSheet(),
-            tonalElevation = 0.dp,
-            title = { FrostBehind(); Text("Delete this board?", style = Type.body.copy(fontWeight = FontWeight.SemiBold), color = p.ink) },
-            text = { Text("Pins in it stay in your library.", style = Type.caption, color = p.ink2) },
-            confirmButton = {
-                TextButton({
-                    confirming = false
-                    nav.pop()
-                    store.launch { deleteBoard(id) }
-                }) { Text("Delete", style = Type.body.copy(fontWeight = FontWeight.SemiBold), color = p.danger) }
+        PortlandDialog(
+            title = "Delete this board?",
+            body = "Pins in it stay in your library.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = {
+                confirming = false
+                nav.pop()
+                store.launch { deleteBoard(id) }
             },
-            dismissButton = {
-                TextButton({ confirming = false }) { Text("Cancel", style = Type.body, color = p.ink) }
-            },
+            onDismiss = { confirming = false },
         )
     }
 }
@@ -523,37 +521,28 @@ private fun NameDialog(
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        shape = Corners.sheet,
-        containerColor = frostedSheet(),
-        tonalElevation = 0.dp,
-        title = { FrostBehind(); Text(title, style = Type.body.copy(fontWeight = FontWeight.SemiBold), color = p.ink) },
-        text = {
-            BasicTextField(
-                value = name,
-                onValueChange = { name = it },
-                singleLine = true,
-                textStyle = Type.body.copy(color = p.ink),
-                cursorBrush = SolidColor(p.ink),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { if (name.isNotBlank()) onConfirm(name.trim()) }),
-                modifier = Modifier.fillMaxWidth().focusRequester(focus),
-                decorationBox = { field ->
-                    Box(Modifier.glass(null, Corners.small).padding(horizontal = 14.dp, vertical = 12.dp)) {
-                        if (name.isEmpty()) Text("Name", style = Type.body, color = p.ink3)
-                        field()
-                    }
-                },
-            )
-        },
-        confirmButton = {
-            TextButton(enabled = name.isNotBlank(), onClick = { onConfirm(name.trim()) }) {
-                Text(confirm, style = Type.body.copy(fontWeight = FontWeight.SemiBold), color = p.ink)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel", style = Type.body, color = p.ink2) }
-        },
-    )
+    PortlandDialog(
+        title = title,
+        confirmLabel = confirm,
+        confirmEnabled = name.isNotBlank(),
+        onConfirm = { onConfirm(name.trim()) },
+        onDismiss = onDismiss,
+    ) {
+        BasicTextField(
+            value = name,
+            onValueChange = { name = it },
+            singleLine = true,
+            textStyle = Type.body.copy(color = p.ink),
+            cursorBrush = SolidColor(p.ink),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { submit() }),
+            modifier = Modifier.fillMaxWidth().focusRequester(focus),
+            decorationBox = { field ->
+                Box(Modifier.glass(null, Corners.small).padding(horizontal = 14.dp, vertical = 14.dp)) {
+                    if (name.isEmpty()) Text("Name", style = Type.body, color = p.ink3)
+                    field()
+                }
+            },
+        )
+    }
 }

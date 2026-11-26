@@ -17,8 +17,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.hapticfeedback.HapticFeedback
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
@@ -26,7 +24,6 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
@@ -52,7 +49,7 @@ enum class SwipeMode { None, Dismiss, Send }
 @Stable
 class MediaSwipe internal constructor(
     private val scope: CoroutineScope,
-    private val haptics: HapticFeedback,
+    private val haptics: Haptics,
     /** Pull down this far (px) and letting go closes. */
     private val dismissPx: Float,
     /** A flick faster than this (px/s) commits regardless of distance. */
@@ -154,9 +151,11 @@ class MediaSwipe internal constructor(
             SwipeMode.Send -> lift = (lift - delta.y).coerceAtLeast(0f)
             SwipeMode.None -> return
         }
-        // One tick as the gesture becomes "let go to commit", like the system back gesture.
+        // One tick as the gesture becomes "let go to commit", and a softer one if it is taken back, like the
+        // system back gesture. Both are rate-limited, so hovering on the line cannot buzz.
         val now = committing(Velocity.Zero)
-        if (now && !armed) haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
+        if (now && !armed) haptics.play(Fx.Threshold)
+        if (!now && armed) haptics.play(Fx.ThresholdBack)
         armed = now
     }
 
@@ -164,6 +163,8 @@ class MediaSwipe internal constructor(
     internal fun release(rawVelocity: Velocity, lifted: Boolean = true) {
         // A NaN/Infinity velocity would poison the springs and crash Offset.round() in a placement lambda.
         val velocity = if (lifted && rawVelocity.x.isFinite() && rawVelocity.y.isFinite()) rawVelocity else Velocity.Zero
+        // Thrown by a flick before the distance tick ever played: a whoosh instead, so every commit is felt once.
+        if (lifted && !armed && mode != SwipeMode.None && committing(velocity)) haptics.play(Fx.Whoosh)
         when (mode) {
             SwipeMode.Dismiss -> if (lifted && committing(velocity)) {
                 dismissing = true
@@ -258,7 +259,7 @@ class MediaSwipe internal constructor(
 @Composable
 fun rememberMediaSwipe(flyOut: Boolean = false, onDismiss: () -> Unit): MediaSwipe {
     val scope = rememberCoroutineScope()
-    val haptics = LocalHapticFeedback.current
+    val haptics = LocalHaptics.current
     val density = LocalDensity.current
     val height = LocalWindowInfo.current.containerSize.height
     val dismiss = rememberUpdatedState(onDismiss)

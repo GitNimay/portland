@@ -60,9 +60,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -391,9 +389,9 @@ fun BoardPickerSheet(
     title: String = "Save to board",
 ) {
     val p = LocalPalette.current
-    val haptics = LocalHapticFeedback.current
+    val haptics = LocalHaptics.current
     // Filing a pin is a small commitment; a confirm tick says it landed.
-    val choose: (String?) -> Unit = { haptics.performHapticFeedback(HapticFeedbackType.Confirm); onPick(it) }
+    val choose: (String?) -> Unit = { haptics.play(Fx.Confirm); onPick(it) }
     val store = LocalContext.current.store
     val scope = rememberCoroutineScope()
     val lib by store.library.collectAsStateWithLifecycle()
@@ -413,7 +411,6 @@ fun BoardPickerSheet(
             BottomSheetDefaults.DragHandle(width = 36.dp, height = 5.dp, color = p.ink3.copy(alpha = 0.5f))
         },
     ) {
-        FrostBehind()
         Text(
             title,
             style = Type.headline,
@@ -421,7 +418,7 @@ fun BoardPickerSheet(
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 12.dp),
         )
-        LazyColumn(Modifier.navigationBarsPadding(), contentPadding = PaddingValues(bottom = 12.dp)) {
+        LazyColumn(Modifier.frostBehindSheet().navigationBarsPadding(), contentPadding = PaddingValues(bottom = 12.dp)) {
             item(key = "new") {
                 PickerRow("New board", selected = false, visual = { AddGlyph() }) { naming = true }
             }

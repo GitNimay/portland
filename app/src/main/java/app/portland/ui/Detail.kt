@@ -63,12 +63,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -166,7 +164,7 @@ fun DetailScreen(ids: List<String>, start: Int) {
     val p = LocalPalette.current
     val store = LocalContext.current.store
     val nav = LocalNav.current
-    val haptics = LocalHapticFeedback.current
+    val haptics = LocalHaptics.current
     val lib by store.library.collectAsStateWithLifecycle()
     val wanted = remember(ids) { ids.toHashSet() }
     val pins = remember(ids, lib.pins) {
@@ -275,12 +273,10 @@ fun DetailScreen(ids: List<String>, start: Int) {
                 Spacer(Modifier.weight(1f))
                 Row(Modifier.glass(chromeBackdrop, Corners.pill).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     BarAction(R.drawable.ic_bookmark, if (boardName == null) "Save to board" else "Change board") {
-                        haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
                         picker = true
                     }
                     BarAction(R.drawable.ic_edit, "Edit note") { details = DetailsOpen.Note }
                     BarAction(R.drawable.ic_trash, "Delete") {
-                        haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
                         confirm = true
                     }
                 }
@@ -369,7 +365,7 @@ private val FrameMargin = 5.dp // either side of the current frame
 private fun Filmstrip(pins: List<Pin>, pager: PagerState) {
     val p = LocalPalette.current
     val store = LocalContext.current.store
-    val haptics = LocalHapticFeedback.current
+    val haptics = LocalHaptics.current
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     // Opens already centred on the current pin, rather than sliding there.
@@ -391,7 +387,8 @@ private fun Filmstrip(pins: List<Pin>, pager: PagerState) {
             .collect { i ->
                 if (i != pager.currentPage) {
                     pager.scrollToPage(i)
-                    haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                    // A light detent per frame, only under the finger: the fling after release glides silently.
+                    if (dragged) haptics.play(Fx.Detent)
                 }
             }
     }
@@ -505,9 +502,9 @@ private fun DetailsSheet(pin: Pin, boardName: String?, focusNote: Boolean, onBoa
         shape = RoundedCornerShape(topStart = Corners.sheetRadius, topEnd = Corners.sheetRadius),
         dragHandle = { BottomSheetDefaults.DragHandle(width = 36.dp, height = 5.dp, color = p.ink3.copy(alpha = 0.5f)) },
     ) {
-        FrostBehind()
         Column(
             Modifier
+                .frostBehindSheet()
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .imePadding()
@@ -739,7 +736,7 @@ private fun rememberViewerPlayer(): ExoPlayer {
 private fun VideoLayer(pin: Pin, active: Boolean, player: ExoPlayer, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val store = context.store
-    val haptics = LocalHapticFeedback.current
+    val haptics = LocalHaptics.current
     val holder = remember(pin.id) { mutableStateOf<ExoPlayer?>(null) }
     var playing by remember(pin.id) { mutableStateOf(true) }
     var muted by remember(pin.id) { mutableStateOf(false) }
@@ -819,7 +816,6 @@ private fun VideoLayer(pin: Pin, active: Boolean, player: ExoPlayer, modifier: M
 
     val toggle by rememberUpdatedState<() -> Unit> {
         val e = exo ?: return@rememberUpdatedState
-        haptics.performHapticFeedback(if (e.isPlaying) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
         if (e.isPlaying) e.pause() else e.play()
         poke++
     }
@@ -834,7 +830,7 @@ private fun VideoLayer(pin: Pin, active: Boolean, player: ExoPlayer, modifier: M
         val target = seekTarget(e.currentPosition, side * SeekStepMs, duration)
         e.seekTo(target)
         position = target
-        haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+        haptics.play(Fx.Tick)
         poke++
     }
 
@@ -915,7 +911,7 @@ private fun VideoLayer(pin: Pin, active: Boolean, player: ExoPlayer, modifier: M
                             enabled = shown || !playing || scrubbing,
                             onClick = {
                                 muted = !muted
-                                haptics.performHapticFeedback(if (muted) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
+                                haptics.play(if (muted) Fx.ToggleOff else Fx.ToggleOn)
                                 poke++
                             },
                         )

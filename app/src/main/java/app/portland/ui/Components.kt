@@ -66,10 +66,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import com.kyant.backdrop.Backdrop
@@ -229,7 +227,7 @@ fun PinGrid(
     bottomPadding: Dp = 120.dp,
     header: @Composable () -> Unit = {},
 ) {
-    val haptics = LocalHapticFeedback.current
+    val haptics = LocalHaptics.current
     val picked = selection?.ids.orEmpty()
     LazyVerticalStaggeredGrid(
         columns = StaggeredGridCells.Fixed(2),
@@ -251,7 +249,7 @@ fun PinGrid(
                 selected = selected,
                 onClick = {
                     if (selection?.active == true) {
-                        haptics.performHapticFeedback(if (selected) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
+                        haptics.play(if (selected) Fx.ToggleOff else Fx.ToggleOn)
                         selection.toggle(pin.id)
                     } else {
                         onOpen(i)
@@ -259,11 +257,11 @@ fun PinGrid(
                 },
                 onLongClick = selection?.let {
                     {
-                        haptics.performHapticFeedback(
+                        haptics.play(
                             when {
-                                !it.active -> HapticFeedbackType.LongPress
-                                selected -> HapticFeedbackType.ToggleOff
-                                else -> HapticFeedbackType.ToggleOn
+                                !it.active -> Fx.Grab
+                                selected -> Fx.ToggleOff
+                                else -> Fx.ToggleOn
                             },
                         )
                         it.toggle(pin.id)
@@ -421,7 +419,7 @@ private fun Mark(selected: Boolean) {
 fun BoxScope.SelectionBar(selection: PinSelection) {
     val p = LocalPalette.current
     val store = LocalContext.current.store
-    val haptics = LocalHapticFeedback.current
+    val haptics = LocalHaptics.current
     var confirm by remember { mutableStateOf(false) }
     // Ids being filed, captured when the sheet opens: the selection is cleared on pick, and the
     // sheet's own animation out must not see it change underneath.
@@ -456,11 +454,9 @@ fun BoxScope.SelectionBar(selection: PinSelection) {
                     Text("$n selected", style = Type.headline, color = p.ink)
                 }
                 IconBtn(R.drawable.ic_bookmark, "Add selected to board") {
-                    haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
                     filing = selection.ids
                 }
                 IconBtn(R.drawable.ic_trash, "Delete selected") {
-                    haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
                     confirm = true
                 }
             }

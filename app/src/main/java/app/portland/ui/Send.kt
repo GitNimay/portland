@@ -40,10 +40,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -76,7 +74,7 @@ fun BoxScope.SendShelf(swipe: MediaSwipe, pin: Pin?, backdrop: Backdrop?) {
     if (swipe.mode != SwipeMode.Send || pin == null) return
     val p = LocalPalette.current
     val context = LocalContext.current
-    val haptics = LocalHapticFeedback.current
+    val haptics = LocalHaptics.current
     val scope = rememberCoroutineScope()
     var busy by remember(pin.id) { mutableStateOf<Action?>(null) }
     var done by remember(pin.id) { mutableStateOf<Action?>(null) }
@@ -101,7 +99,7 @@ fun BoxScope.SendShelf(swipe: MediaSwipe, pin: Pin?, backdrop: Backdrop?) {
                 if (action != Action.Send) {
                     // The check is the confirmation: no toast. Let it land before the dock sinks.
                     done = action
-                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                    haptics.play(Fx.Confirm)
                     delay(650)
                 }
                 swipe.closeShelf()
@@ -110,7 +108,7 @@ fun BoxScope.SendShelf(swipe: MediaSwipe, pin: Pin?, backdrop: Backdrop?) {
             } catch (e: Exception) {
                 busy = null
                 failed = action
-                haptics.performHapticFeedback(HapticFeedbackType.Reject)
+                haptics.play(Fx.Reject)
                 // A failure is the one thing worth words: say what went wrong.
                 toast(context, if (R2.enabled) "Couldn't get this pin. Check your connection." else "This pin's file is missing.")
                 delay(1400)

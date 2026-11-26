@@ -36,7 +36,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.FrameRateCategory
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.preferredFrameRate
@@ -140,6 +139,7 @@ fun AppRoot(openPinId: String? = null, onPinOpened: () -> Unit = {}) {
     val nav = remember { Nav(saved) }
     val scope = rememberCoroutineScope()
     val back = remember { BackPreview() }
+    val haptics = LocalHaptics.current
 
     // Looked up once per request, not observed: the library changes constantly (captions, colours, sync) and
     // observing it here recomposed the whole nav host each time.
@@ -147,7 +147,15 @@ fun AppRoot(openPinId: String? = null, onPinOpened: () -> Unit = {}) {
         val targetId = openPinId ?: return@LaunchedEffect
         val pins = store.library.value.pins
         val index = pins.indexOfFirst { it.id == targetId }
-        if (index >= 0) nav.openDetail(pins.map { it.id }, index)
+        if (index >= 0) {
+            nav.openDetail(pins.map { it.id }, index)
+            // A pin saved long ago, back from a reminder: one heartbeat as it lands, the app's only "delight" haptic.
+            // In [scope], not this effect: onPinOpened() clears openPinId, which restarts (cancels) this effect.
+            scope.launch {
+                delay(120)
+                haptics.play(Fx.Heartbeat)
+            }
+        }
         onPinOpened()
     }
     // Predictive back: the screen shrinks and follows the finger; letting go goes back, pulling away springs it home.
@@ -170,7 +178,7 @@ fun AppRoot(openPinId: String? = null, onPinOpened: () -> Unit = {}) {
         }
     }
     // Behind the shrinking screen: a slightly deeper tone, so its rounded edge reads. Fades out once released.
-    val behind = if (p.dark) Color(0xFF1C1C1E) else Color(0xFFE5E5EA)
+    val behind = p.behind
     val behindAlpha by animateFloatAsState(if (back.dragging) 1f else 0f, tween(200), label = "behind")
     SharedTransitionLayout(
         Modifier.drawBehind {

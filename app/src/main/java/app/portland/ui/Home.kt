@@ -68,9 +68,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -126,7 +124,7 @@ fun HomeScreen() {
     val searching = query != null
     val selection = rememberPinSelection()
     val scope = rememberCoroutineScope()
-    val haptics = LocalHapticFeedback.current
+    val haptics = LocalHaptics.current
 
     val pins = remember(lib.pins, lib.boards, query) { lib.search(query.orEmpty()) }
     val openPin = rememberOpenPin(pins)
@@ -146,7 +144,7 @@ fun HomeScreen() {
     // One tick as a swipe crosses over to the other section, like the segmented control's own.
     val dragged by pager.interactionSource.collectIsDraggedAsState()
     LaunchedEffect(pager) {
-        snapshotFlow { pager.targetPage }.drop(1).collect { if (dragged) haptics.performHapticFeedback(HapticFeedbackType.SegmentTick) }
+        snapshotFlow { pager.targetPage }.drop(1).collect { if (dragged) haptics.play(Fx.Tick) }
     }
     val showTab: (Int) -> Unit = { i ->
         tab = i
@@ -323,7 +321,7 @@ private fun Header(
     onLargeHeight: (Int) -> Unit,
 ) {
     val p = LocalPalette.current
-    val haptics = LocalHapticFeedback.current
+    val haptics = LocalHaptics.current
     // The scroll drives the fade per frame inside graphicsLayer; composition only hears when the button appears or goes.
     val settingsVisible by remember(progress) { derivedStateOf { settingsAlpha(progress()) > 0.02f } }
     Column(modifier.onSizeChanged { onHeaderHeight(it.height) }.statusBarsPadding()) {
@@ -470,7 +468,7 @@ private fun Header(
                                     .fillMaxHeight()
                                     .clip(Corners.pill)
                                     .clickable(role = Role.Tab, onClickLabel = label) {
-                                        if (i != tab()) haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                                        if (i != tab()) haptics.play(Fx.Tick)
                                         onTab(i)
                                     },
                                 contentAlignment = Alignment.Center,

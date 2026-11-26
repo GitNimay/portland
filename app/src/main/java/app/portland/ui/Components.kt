@@ -37,7 +37,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -59,6 +58,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,10 +66,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import com.kyant.backdrop.Backdrop
@@ -84,6 +82,7 @@ import app.portland.data.sharedBoard
 import app.portland.store
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
+import coil3.request.ImageRequest
 
 val CardShape = Corners.card
 val GridGutter = 16.dp
@@ -172,6 +171,43 @@ class PinSelection {
 @Composable
 fun rememberPinSelection() = remember { PinSelection() }
 
+/**
+ * Opens the viewer over [pins] at the tapped index. The same function instance survives library changes (it
+ * reads the newest list when called), so a caption arriving for one pin does not hand every visible card a new
+ * click lambda and recompose the whole feed.
+ */
+@Composable
+fun rememberOpenPin(pins: List<Pin>): (Int) -> Unit {
+    val nav = LocalNav.current
+    val latest by rememberUpdatedState(pins)
+    return remember(nav) { { i -> nav.push(Screen.Detail(latest.map { it.id }, i)) } }
+}
+
+/**
+ * Memory-cache key shared by a pin's grid card and the viewer's media, so the viewer can show the card's
+ * already-decoded thumbnail the instant a shared-element transition starts (the guidance for Coil + shared elements).
+ */
+private fun thumbCacheKey(id: String) = "pin-thumb:$id"
+
+/** The grid card's thumbnail request: [model] under the shared [thumbCacheKey]. */
+@Composable
+internal fun rememberCardThumb(id: String, model: Any): ImageRequest {
+    val context = LocalContext.current
+    return remember(id) { ImageRequest.Builder(context).data(model).memoryCacheKey(thumbCacheKey(id)).build() }
+}
+
+/** The viewer's thumbnail request: starts from whatever the grid card already decoded, then loads at stage size. */
+@Composable
+internal fun rememberViewerThumb(id: String, model: Any): ImageRequest {
+    val context = LocalContext.current
+    return remember(id) {
+        ImageRequest.Builder(context).data(model)
+            .memoryCacheKey(thumbCacheKey(id))
+            .placeholderMemoryCacheKey(thumbCacheKey(id))
+            .build()
+    }
+}
+
 // Placeholder shapes for pins still being copied in; a mix so they read as a masonry, not a table.
 private val SkeletonRatios = floatArrayOf(0.8f, 1.25f, 1f, 0.7f)
 
@@ -191,8 +227,7 @@ fun PinGrid(
     bottomPadding: Dp = 120.dp,
     header: @Composable () -> Unit = {},
 ) {
-    val haptics = LocalHapticFeedback.current
-    val picked = selection?.ids.orEmpty()
+    val haptics = LocalHaptics.current
     LazyVerticalStaggeredGrid(
         columns = StaggeredGridCells.Fixed(2),
         state = state,
@@ -206,6 +241,8 @@ fun PinGrid(
             SkeletonCard(SkeletonRatios[it % SkeletonRatios.size], Modifier.animateItem())
         }
         itemsIndexed(pins, key = { _, pin -> pin.id }, contentType = { _, _ -> "pin" }) { i, pin ->
+            // Read per card, not around the grid: toggling one pin re-runs the cards, not the grid and its item list.
+            val picked = selection?.ids.orEmpty()
             val selected = pin.id in picked
             PinCard(
                 pin,
@@ -213,7 +250,7 @@ fun PinGrid(
                 selected = selected,
                 onClick = {
                     if (selection?.active == true) {
-                        haptics.performHapticFeedback(if (selected) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
+                        haptics.play(if (selected) Fx.ToggleOff else Fx.ToggleOn)
                         selection.toggle(pin.id)
                     } else {
                         onOpen(i)
@@ -221,11 +258,11 @@ fun PinGrid(
                 },
                 onLongClick = selection?.let {
                     {
-                        haptics.performHapticFeedback(
+                        haptics.play(
                             when {
-                                !it.active -> HapticFeedbackType.LongPress
-                                selected -> HapticFeedbackType.ToggleOff
-                                else -> HapticFeedbackType.ToggleOn
+                                !it.active -> Fx.Grab
+                                selected -> Fx.ToggleOff
+                                else -> Fx.ToggleOn
                             },
                         )
                         it.toggle(pin.id)
@@ -249,7 +286,7 @@ fun PinCard(
 ) {
     val p = LocalPalette.current
     val store = LocalContext.current.store
-    val model = remember(pin.id) { store.thumb(pin) }
+    val request = rememberCardThumb(pin.id, remember(pin.id) { store.thumb(pin) })
     var loaded by remember(pin.id) { mutableStateOf(false) }
     val press = remember { MutableInteractionSource() }
     val pressed by press.collectIsPressedAsState()
@@ -289,7 +326,7 @@ fun PinCard(
                     .then(if (loaded) Modifier else Modifier.shimmer(p.shimmer)),
             ) {
                 AsyncImage(
-                    model = model,
+                    model = request,
                     contentDescription = pin.note.ifBlank { null },
                     contentScale = ContentScale.Crop,
                     onState = { loaded = it is AsyncImagePainter.State.Success || it is AsyncImagePainter.State.Error },
@@ -308,7 +345,8 @@ fun PinCard(
                     ) {
                         Icon(painterResource(R.drawable.ic_play), contentDescription = "Video", tint = Color.White, modifier = Modifier.size(IconSize.inline))
                         Spacer(Modifier.width(4.dp))
-                        Text(formatDuration(pin.durationMs), style = Type.footnote.copy(fontWeight = FontWeight.Medium).digits(), color = Color.White)
+                        val duration = remember(pin.durationMs) { formatDuration(pin.durationMs) }
+                        Text(duration, style = VideoBadgeStyle, color = Color.White)
                     }
                 }
             }
@@ -340,6 +378,8 @@ fun PinCard(
         }
     }
 }
+
+private val VideoBadgeStyle = Type.footnote.copy(fontWeight = FontWeight.Medium).digits()
 
 // The description usually lands within seconds; past this, stop promising one (e.g. offline).
 private const val DESCRIBING_MS = 2 * 60_000L
@@ -380,7 +420,7 @@ private fun Mark(selected: Boolean) {
 fun BoxScope.SelectionBar(selection: PinSelection) {
     val p = LocalPalette.current
     val store = LocalContext.current.store
-    val haptics = LocalHapticFeedback.current
+    val haptics = LocalHaptics.current
     var confirm by remember { mutableStateOf(false) }
     // Ids being filed, captured when the sheet opens: the selection is cleared on pick, and the
     // sheet's own animation out must not see it change underneath.
@@ -415,11 +455,9 @@ fun BoxScope.SelectionBar(selection: PinSelection) {
                     Text("$n selected", style = Type.headline, color = p.ink)
                 }
                 IconBtn(R.drawable.ic_bookmark, "Add selected to board") {
-                    haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
                     filing = selection.ids
                 }
                 IconBtn(R.drawable.ic_trash, "Delete selected") {
-                    haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
                     confirm = true
                 }
             }

@@ -38,11 +38,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.preferredFrameRate
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
@@ -125,7 +123,7 @@ fun IntroHost(play: Boolean, content: @Composable () -> Unit) {
     var done by rememberSaveable { mutableStateOf(!play || !motion) }
     val clock = remember { Animatable(if (done) TOTAL else 0f) }
     val scope = rememberCoroutineScope()
-    val haptics = LocalHapticFeedback.current
+    val haptics = LocalHaptics.current
     // Flips once, so the feed's draw is skipped during the intro without redrawing it every frame. It starts
     // drawing (still hidden under the opaque intro) while the cards are being swallowed, so its first, costly
     // frame never lands on the hand-off.
@@ -145,7 +143,7 @@ fun IntroHost(play: Boolean, content: @Composable () -> Unit) {
         launch { clock.animateTo(TOTAL, tween((TOTAL - clock.value).toInt(), easing = LinearEasing)) }
         launch {
             snapshotFlow { clock.value >= PULSE_AT }.first { it }
-            if (clock.value < HANDOFF_AT) haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
+            if (clock.value < HANDOFF_AT) haptics.play(Fx.Tick)
         }
         snapshotFlow { clock.value >= TOTAL }.first { it }
         done = true
@@ -182,8 +180,9 @@ private fun Intro(clock: () -> Float, onSkip: () -> Unit) {
     val store = LocalContext.current.store
     // The newest pins; an empty library still gets a ring of quiet placeholder tiles.
     val thumbs = remember { store.library.value.pins.take(CARDS).map(store::thumb) }
-    // The window colour, not the palette's: it is what the system splash showed a frame ago.
-    val canvas = colorResource(R.color.canvas)
+    // The in-app theme's canvas: on 12+ it is also what the splash showed (app night mode); on 11 the theme can
+    // differ from the system, and the disc and mark below already follow the palette.
+    val canvas = p.canvas
 
     Box(
         Modifier

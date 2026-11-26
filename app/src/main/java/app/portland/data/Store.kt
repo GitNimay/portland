@@ -14,6 +14,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -29,6 +30,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Single source of truth. The library is held in memory, persisted as one JSON file,
@@ -76,15 +78,42 @@ class Store(private val app: Context) {
 
     /** Applies [change] atomically, persists it and, unless [sync] is false, schedules a sync. */
     suspend fun update(sync: Boolean = true, change: (Library) -> Library) {
-        val changed = lock.withLock {
+        // The state lock covers only the in-memory swap, so the next change never waits behind a disk write.
+        val mine = lock.withLock {
             val next = change(state.value)
-            if (next == state.value) return@withLock false
+            if (next == state.value) return@withLock 0L
             state.value = next
-            // A full disk must not kill the caller; the change stays in memory and the next save retries.
-            withContext(Dispatchers.IO) { runCatching { save(next) }.onFailure { if (it is CancellationException) throw it; Log.e("Store", "save failed", it) } }
-            true
+            version.incrementAndGet() // after the swap: a save that reads this version also reads this state
         }
-        if (changed && sync) Sync.schedule(app)
+        if (mine == 0L) return
+        // The new state is already live in memory; finish writing it even if the caller is cancelled meanwhile.
+        withContext(NonCancellable) { persist(mine) }
+        if (sync) Sync.schedule(app)
+    }
+
+    // Group commit: saves run one at a time and always write the newest state, so changes that pile up while a
+    // save is in flight (a burst of captions, an upload pass) share the next one instead of rewriting the file each.
+    private val saveLock = Mutex()
+    private val version = AtomicLong()
+    private var savedVersion = 0L // guarded by saveLock
+
+    /** Returns once [mine] (a version from [update]) is on disk, or a save has been tried and failed. */
+    private suspend fun persist(mine: Long) = saveLock.withLock {
+        if (savedVersion >= mine) return@withLock // a save that began after this change already wrote it
+        val covered = version.get() // read before the state: the save below includes at least this much
+        val lib = state.value
+        // A full disk must not kill the caller; the change stays in memory and the next save retries.
+        val ok = withContext(Dispatchers.IO) {
+            try {
+                save(lib)
+                true
+            } catch (e: Throwable) {
+                if (e is CancellationException) throw e
+                Log.e("Store", "save failed", e)
+                false
+            }
+        }
+        if (ok) savedVersion = covered
     }
 
     suspend fun add(uris: List<Uri>, boardId: String?) {

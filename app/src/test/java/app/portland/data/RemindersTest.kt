@@ -152,6 +152,57 @@ class RemindersTest {
     }
 
     @Test
+    fun `foreground timestamp is persisted at most every few minutes and always when the clock goes back`() {
+        val last = epoch(hour = 14)
+        assertFalse(ReminderPolicy.shouldRecordActive(last, last))
+        assertFalse(ReminderPolicy.shouldRecordActive(last, last + ReminderPolicy.ACTIVE_RECORD_INTERVAL_MS - 1))
+        assertTrue(ReminderPolicy.shouldRecordActive(last, last + ReminderPolicy.ACTIVE_RECORD_INTERVAL_MS))
+        assertTrue(ReminderPolicy.shouldRecordActive(0L, last))
+        assertTrue(ReminderPolicy.shouldRecordActive(last, last - 1))
+        // The throttle must stay well inside the suppression window or suppression would visibly lag.
+        assertTrue(ReminderPolicy.ACTIVE_RECORD_INTERVAL_MS * 4 <= ReminderPolicy.ACTIVE_SUPPRESSION_MS)
+    }
+
+    @Test
+    fun `timestamps from the future after a clock change are pulled back to now`() {
+        val now = epoch(day = 26, hour = 14)
+        val lib = libraryOf(pin("a"), pin("b"))
+        val weekAhead = now + 7 * ReminderPolicy.DAY_MS
+
+        // Clock was a week ahead when the last reminder was sent and the app last opened, then got corrected.
+        val state = ReminderSnapshot(
+            lastSentAt = weekAhead,
+            lastAppActiveAt = weekAhead,
+            sentTimestamps = listOf(weekAhead),
+        )
+        val clean = ReminderPolicy.sanitize(state, now)
+        assertEquals(now, clean.lastSentAt)
+        assertEquals(now, clean.lastAppActiveAt)
+        assertEquals(listOf(now), clean.sentTimestamps)
+        assertTrue(ReminderPolicy.sanitize(clean, now) === clean)
+
+        // Persisted once, the cooldown then simply runs out: no week-long silence, no renewal on each evaluation.
+        val res = ReminderPolicy.evaluateEligibility(clean, lib, now, zone, Random(0)) as Eligibility.Defer
+        assertEquals(DeferReason.Cooldown, res.reason)
+        assertTrue(res.deferUntilMs <= now + 4 * ReminderPolicy.HOUR_MS + ReminderPolicy.MINUTE_MS)
+        val later = now + 5 * ReminderPolicy.HOUR_MS
+        assertTrue(ReminderPolicy.evaluateEligibility(clean, lib, later, zone, Random(0)) is Eligibility.Send)
+    }
+
+    @Test
+    fun `reminder windows follow local time across a DST change`() {
+        val ny = java.time.ZoneId.of("America/New_York")
+        // 2026-03-08 02:00 -> 03:00 in New York; 23:00 the evening before defers to the morning after the jump.
+        val lateNight = ZonedDateTime.of(2026, 3, 7, 23, 0, 0, 0, ny).toInstant().toEpochMilli()
+        val lib = libraryOf(pin("a"), pin("b"))
+        val res = ReminderPolicy.evaluateEligibility(ReminderSnapshot(), lib, lateNight, ny, Random(3)) as Eligibility.Defer
+        val target = Instant.ofEpochMilli(res.deferUntilMs).atZone(ny)
+        assertEquals(8, target.dayOfMonth)
+        assertTrue(target.hour in 9..10)
+        assertFalse(ReminderPolicy.isQuietHour(res.deferUntilMs, ny))
+    }
+
+    @Test
     fun `pickPin skips recent history and falls back gracefully without immediate repeat`() {
         val now = epoch(day = 26, hour = 14)
         val oldRich = pin("old", createdAt = now - 20 * ReminderPolicy.DAY_MS, note = "Staircase", boardId = "b1")

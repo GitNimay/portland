@@ -30,8 +30,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.border
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
@@ -66,7 +66,13 @@ fun PortlandDialog(
     content: (@Composable DialogScope.() -> Unit)? = null,
 ) {
     val p = LocalPalette.current
-    val haptics = LocalHapticFeedback.current
+    val rim = remember(p.dark) {
+        Brush.verticalGradient(
+            if (p.dark) listOf(Color.White.copy(alpha = 0.18f), Color.White.copy(alpha = 0.05f))
+            else listOf(Color.White.copy(alpha = 0.9f), Color.White.copy(alpha = 0.3f)),
+        )
+    }
+    val haptics = LocalHaptics.current
     val scope = rememberCoroutineScope()
     val shown = remember { Animatable(0f) }
     var leaving by remember { mutableStateOf(false) }
@@ -88,7 +94,8 @@ fun PortlandDialog(
     }
     val submit: () -> Unit = {
         if (enabled && !leaving) {
-            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+            // A deletion lands with weight; anything else confirms.
+            haptics.play(if (destructive) Fx.Thud else Fx.Confirm)
             leave { confirmNow() }
         }
     }
@@ -96,7 +103,8 @@ fun PortlandDialog(
     val dialogScope = remember { DialogScope { submit() } }
 
     Dialog(onDismissRequest = cancel) {
-        FrostBehind()
+        // The blur and dim behind ease in and out with the card instead of snapping.
+        FrostBehind(progress = { shown.value })
         Column(
             Modifier
                 .widthIn(min = 280.dp, max = 360.dp)
@@ -111,6 +119,8 @@ fun PortlandDialog(
                 }
                 .clip(Corners.sheet)
                 .background(frostedSheet())
+                // A light-catching rim, as on glass: keeps the edge readable over dark or busy content.
+                .border(0.5.dp, rim, Corners.sheet)
                 .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 20.dp),
         ) {
             Text(title, style = Type.headline, color = p.ink)

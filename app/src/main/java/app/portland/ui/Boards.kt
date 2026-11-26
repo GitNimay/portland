@@ -60,9 +60,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -92,7 +90,6 @@ fun BoardsGrid(
     state: LazyStaggeredGridState = rememberLazyStaggeredGridState(),
     header: @Composable () -> Unit,
 ) {
-    val p = LocalPalette.current
     val store = LocalContext.current.store
     val nav = LocalNav.current
     var naming by remember { mutableStateOf(false) }
@@ -213,6 +210,8 @@ fun BoardScreen(id: String) {
     val lib by store.library.collectAsStateWithLifecycle()
     val board = lib.boards.find { it.id == id }
     val pins = remember(lib.pins, id) { lib.pins.filter { it.boardId == id } }
+    val openPin = rememberOpenPin(pins)
+    val bottomFade = remember(p.canvas) { Brush.verticalGradient(0f to p.canvas.copy(alpha = 0f), 1f to p.canvas.copy(alpha = 0.85f)) }
     var menu by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var confirming by remember { mutableStateOf(false) }
@@ -237,7 +236,7 @@ fun BoardScreen(id: String) {
     Box(Modifier.fillMaxSize().background(p.canvas)) {
         PinGrid(
             pins = pins,
-            onOpen = { i -> nav.push(Screen.Detail(pins.map { it.id }, i)) },
+            onOpen = openPin,
             modifier = Modifier.fillMaxSize().layerBackdrop(backdrop),
             selection = selection,
             loading = importing,
@@ -346,12 +345,7 @@ fun BoardScreen(id: String) {
             Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        0f to p.canvas.copy(alpha = 0f),
-                        1f to p.canvas.copy(alpha = 0.85f),
-                    ),
-                )
+                .background(bottomFade)
                 .navigationBarsPadding()
                 .height(72.dp),
         )
@@ -395,9 +389,9 @@ fun BoardPickerSheet(
     title: String = "Save to board",
 ) {
     val p = LocalPalette.current
-    val haptics = LocalHapticFeedback.current
+    val haptics = LocalHaptics.current
     // Filing a pin is a small commitment; a confirm tick says it landed.
-    val choose: (String?) -> Unit = { haptics.performHapticFeedback(HapticFeedbackType.Confirm); onPick(it) }
+    val choose: (String?) -> Unit = { haptics.play(Fx.Confirm); onPick(it) }
     val store = LocalContext.current.store
     val scope = rememberCoroutineScope()
     val lib by store.library.collectAsStateWithLifecycle()
@@ -417,7 +411,6 @@ fun BoardPickerSheet(
             BottomSheetDefaults.DragHandle(width = 36.dp, height = 5.dp, color = p.ink3.copy(alpha = 0.5f))
         },
     ) {
-        FrostBehind()
         Text(
             title,
             style = Type.headline,
@@ -425,7 +418,7 @@ fun BoardPickerSheet(
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 12.dp),
         )
-        LazyColumn(Modifier.navigationBarsPadding(), contentPadding = PaddingValues(bottom = 12.dp)) {
+        LazyColumn(Modifier.frostBehindSheet().navigationBarsPadding(), contentPadding = PaddingValues(bottom = 12.dp)) {
             item(key = "new") {
                 PickerRow("New board", selected = false, visual = { AddGlyph() }) { naming = true }
             }

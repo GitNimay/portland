@@ -1,59 +1,85 @@
 package app.portland.ui
 
+import android.graphics.Color as AndroidColor
+import android.graphics.drawable.ColorDrawable
 import android.os.Build
+import android.view.WindowManager
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.findRootCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.WindowCompat
 import app.portland.R
+import app.portland.data.Prefs
+import app.portland.data.ThemeMode
 import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.emptyBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.drawPlainBackdrop
-import com.kyant.backdrop.effects.runtimeShaderEffect
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.RectangleShape
 import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.backdrops.emptyBackdrop
 import com.kyant.backdrop.effects.colorControls
+import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.effects.runtimeShaderEffect
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.Shadow
-import android.view.WindowManager
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.getValue
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.window.DialogWindowProvider
 import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
 import com.kyant.shapes.RoundedRectangularShape
+import java.util.function.Consumer
+import kotlin.math.roundToInt
 
-/** Neutral ink ladder: alpha black on white (alpha white on pure black in dark mode), plus Apple-style fills and glass. */
+/** Neutral ink ladder: alpha black on warm paper white (alpha white on OLED black in dark mode), plus Apple-style fills and glass. */
 @Immutable
 data class Palette(
     val canvas: Color,
@@ -72,15 +98,24 @@ data class Palette(
     val dark: Boolean,
     val shimmer: Color, // the light that sweeps over a loading placeholder
     val scrim: Color, // dims content behind a panel, shelf or sheet: one strength everywhere
+    val grouped: Color, // background of a grouped list sheet (Apple systemGroupedBackground, elevated)
+    val cell: Color, // rows of a grouped list, one step above [grouped]
+    val behind: Color, // what shows around a screen shrinking under predictive back
 )
 
+// Light canvas: a warm paper white (as on cursor.com) instead of stark #FFF; it is easier on the eyes and lets
+// white cells and sheets read as raised. Dark is true OLED black: unlit pixels, with raised surfaces in Apple's greys.
+private val Paper = Color(0xFFF7F7F4)
+private val PaperRaised = Color(0xFFFCFCFA)
+
 private val Light = Palette(
-    canvas = Color.White, ink = Color.Black, ink2 = Color.Black.copy(0.64f),
+    canvas = Paper, ink = Color.Black, ink2 = Color.Black.copy(0.64f),
     ink3 = Color.Black.copy(0.56f), line = Color.Black.copy(0.10f), fill = Color(0x1F767680),
-    sheet = Color(0xFFF9F9F9), glass = Color.White.copy(0.14f), glassFlat = Color(0x1A767680),
-    glassRegular = Color(0xFFF9F9F9).copy(0.62f),
-    glassSolid = Color(0xF2F6F6F8), thumb = Color.White, danger = Color(0xFFFF3B30), dark = false,
+    sheet = PaperRaised, glass = Color.White.copy(0.14f), glassFlat = Color(0x1A767680),
+    glassRegular = PaperRaised.copy(0.62f),
+    glassSolid = Color(0xF2FAFAF7), thumb = Color.White, danger = Color(0xFFFF3B30), dark = false,
     shimmer = Color.White.copy(0.7f), scrim = Color.Black.copy(0.18f),
+    grouped = Color(0xFFF2F1ED), cell = Color.White, behind = Color(0xFFE6E5E0),
 )
 private val Dark = Palette(
     canvas = Color.Black, ink = Color.White, ink2 = Color.White.copy(0.60f),
@@ -89,6 +124,7 @@ private val Dark = Palette(
     glassRegular = Color(0xFF1C1C1E).copy(0.58f),
     glassSolid = Color(0xF21C1C1E), thumb = Color.White.copy(0.20f), danger = Color(0xFFFF453A), dark = true,
     shimmer = Color.White.copy(0.07f), scrim = Color.Black.copy(0.40f),
+    grouped = Color(0xFF1C1C1E), cell = Color(0xFF2C2C2E), behind = Color(0xFF1C1C1E),
 )
 
 private fun inter(weight: Int, opsz: Float) = Font(
@@ -209,7 +245,8 @@ fun Modifier.glass(
     frostOf: (() -> Float)? = null, // draw-time frost (overrides [frost]): animate it without recomposing
 ): Modifier {
     val p = LocalPalette.current
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+    // Android 11, or "Reduce transparency" in Settings: one solid fill, no backdrop recording or effects at all.
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || LocalReduceTransparency.current) {
         val solid = if (tint == Color.Unspecified) p.glassSolid else tint.copy(alpha = 1f)
         return this
             .graphicsLayer { val s = scale(); scaleX = s; scaleY = s }
@@ -255,35 +292,129 @@ fun Modifier.glass(
 // Frost radius of regular glass: enough to turn busy content behind it into colour, not detail.
 private const val RegularBlur = 14f
 
-/** Container colour for a dialog or sheet: see-through when [FrostBehind] can blur the app behind it. */
+/**
+ * Whether the system will blur behind a window right now. It can change while a sheet is open (battery saver,
+ * the developer option, a TV-style tunnelled video), so it is state fed by the system listener, not a one-off read.
+ * Always false before Android 12 and under "Reduce transparency".
+ */
 @Composable
-fun frostedSheet(): Color {
-    val p = LocalPalette.current
+fun rememberWindowBlurEnabled(): Boolean =
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !LocalReduceTransparency.current && LocalWindowBlur.current
+
+// One system listener for the whole app (PortlandTheme), shared by every sheet and dialog through a local.
+private val LocalWindowBlur = compositionLocalOf { false }
+
+@Composable
+private fun rememberSystemWindowBlur(): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return false
     val context = LocalContext.current
-    val blur = remember(context) {
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            context.getSystemService(WindowManager::class.java)?.isCrossWindowBlurEnabled == true
+    val wm = remember(context) { context.getSystemService(WindowManager::class.java) } ?: return false
+    var enabled by remember(wm) { mutableStateOf(wm.isCrossWindowBlurEnabled) }
+    DisposableEffect(wm) {
+        val listener = Consumer<Boolean> { enabled = it } // also called once at registration with the current value
+        wm.addCrossWindowBlurEnabledListener(context.mainExecutor, listener)
+        onDispose { wm.removeCrossWindowBlurEnabledListener(listener) }
     }
-    return if (blur) p.sheet.copy(alpha = if (p.dark) 0.68f else 0.74f) else p.sheet
+    return enabled
+}
+
+/**
+ * Container colour for a dialog or sheet: see-through when [FrostBehind] is blurring the app behind it, solid
+ * otherwise (so a sheet never turns into plain see-through film when blur switches off). [base] defaults to
+ * [Palette.sheet]; grouped lists pass [Palette.grouped].
+ */
+@Composable
+fun frostedSheet(base: Color = LocalPalette.current.sheet): Color {
+    val dark = LocalPalette.current.dark
+    return if (rememberWindowBlurEnabled()) base.copy(alpha = if (dark) 0.68f else 0.74f) else base
 }
 
 /**
  * Frosts the app behind the current dialog or bottom-sheet window, so a [frostedSheet] container reads as glass.
- * Call it from inside the dialog's content. No-op before Android 12 or where the device disables window blur.
+ * Call it from inside the dialog's content. The blur and the dim follow [progress] (0 closed .. 1 open, read
+ * outside composition), so they ease in and out with the panel instead of snapping on at the first frame and off
+ * after it has gone. The window is only touched when the whole-pixel radius changes. No-op before Android 12;
+ * where blur is off, the dim is a little stronger so the panel still stands apart.
  */
 @Composable
-fun FrostBehind(radius: Dp = 28.dp) {
+fun FrostBehind(progress: () -> Float = { 1f }, radius: Dp = 28.dp) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+    val blur = rememberWindowBlurEnabled()
     val view = LocalView.current
-    val px = with(LocalDensity.current) { radius.roundToPx() }
-    DisposableEffect(view, px) {
-        val window = ((view.parent as? DialogWindowProvider) ?: (view as? DialogWindowProvider))?.window
-        if (window != null && window.windowManager.isCrossWindowBlurEnabled) {
-            window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-            window.attributes = window.attributes.apply { blurBehindRadius = px }
-            window.setDimAmount(0.18f)
-        }
+    // The platform guidance: cross-window blur is expensive, keep radii well under 150px.
+    val maxPx = with(LocalDensity.current) { radius.toPx() }.coerceAtMost(MaxBlurPx)
+    val read by rememberUpdatedState(progress)
+    val window = remember(view) { ((view.parent as? DialogWindowProvider) ?: (view as? DialogWindowProvider))?.window }
+    // A dialog dims its own window; a bottom sheet draws its scrim in Compose and has no dim layer. Read once,
+    // before this function adds the flag itself.
+    val windowDims = remember(window) { window != null && window.attributes.flags and WindowManager.LayoutParams.FLAG_DIM_BEHIND != 0 }
+    // Start from nothing before the window's first frame (effects apply before it draws), so a dialog never
+    // flashes its theme's default dim before the eased one below takes over.
+    DisposableEffect(window) {
+        window?.attributes = window?.attributes?.apply { dimAmount = 0f; blurBehindRadius = 0 }
         onDispose {}
+    }
+    LaunchedEffect(window, blur, maxPx) {
+        window ?: return@LaunchedEffect
+        if (blur) window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+        else window.clearFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+        // The system draws blur-behind on the window's dim layer, and skips a dim layer with zero alpha, so a
+        // sheet gets a dim layer too: just enough alpha to carry the blur, invisible on top of its own scrim.
+        if (blur && !windowDims) window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        val dim = when {
+            !windowDims -> CarrierDim
+            blur -> BlurDim
+            else -> SolidDim
+        }
+        // Each update is a window relayout (a binder call on the UI thread), so ease in [FrostSteps] steps,
+        // at most one per frame: smooth to the eye, a handful of relayouts per open or close.
+        snapshotFlow { (read().coerceIn(0f, 1f) * FrostSteps).roundToInt() }.collect { step ->
+            val t = step / FrostSteps.toFloat()
+            window.attributes = window.attributes.apply {
+                if (blur) blurBehindRadius = (t * maxPx).roundToInt()
+                dimAmount = dim * t
+            }
+        }
+    }
+}
+
+/**
+ * Keeps a dialog or sheet window's status and navigation bar icons readable when the theme changes while it is
+ * open (a sheet window picks its icon colours when it is created). Call from inside the window's content.
+ */
+@Composable
+fun SyncWindowBars() {
+    val view = LocalView.current
+    val dark = LocalPalette.current.dark
+    LaunchedEffect(view, dark) {
+        val window = ((view.parent as? DialogWindowProvider) ?: (view as? DialogWindowProvider))?.window ?: return@LaunchedEffect
+        WindowCompat.getInsetsController(window, view).apply {
+            isAppearanceLightStatusBars = !dark
+            isAppearanceLightNavigationBars = !dark
+        }
+    }
+}
+
+private const val FrostSteps = 16
+private const val MaxBlurPx = 96f
+private const val BlurDim = 0.18f
+private const val SolidDim = 0.32f
+private const val CarrierDim = 0.01f
+
+/**
+ * [FrostBehind] for a bottom sheet's content: the frost follows how far the sheet has risen into the window,
+ * so it tracks the open and close animations and a finger dragging the sheet down. Apply it to the sheet's
+ * outermost content (the full-width column below the drag handle).
+ */
+@Composable
+fun Modifier.frostBehindSheet(radius: Dp = 28.dp): Modifier {
+    val risen = remember { mutableFloatStateOf(0f) }
+    FrostBehind({ risen.floatValue }, radius)
+    return onGloballyPositioned { c ->
+        val h = c.size.height
+        if (h <= 0) return@onGloballyPositioned
+        val windowH = c.findRootCoordinates().size.height
+        risen.floatValue = ((windowH - c.positionInRoot().y) / minOf(h, windowH)).coerceIn(0f, 1f)
     }
 }
 
@@ -311,7 +442,7 @@ fun Modifier.scrollEdge(backdrop: Backdrop, visible: () -> Float): Modifier {
     // Nothing under the header yet: skip the blur and shader passes entirely (recomposes only when this flips).
     val active by remember(visible) { derivedStateOf { visible() > 0.001f } }
     if (!active) return this
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || LocalReduceTransparency.current) {
         return this
             .graphicsLayer { alpha = visible() }
             .background(Brush.verticalGradient(0f to canvas.copy(alpha = 0.96f), 0.65f to canvas.copy(alpha = 0.8f), 1f to canvas.copy(alpha = 0f)))
@@ -334,13 +465,26 @@ fun Modifier.scrollEdge(backdrop: Backdrop, visible: () -> Float): Modifier {
 
 val LocalPalette = staticCompositionLocalOf { Light }
 
-@Composable
-fun PortlandTheme(content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
-    val p = if (dark) Dark else Light
+/** "Reduce transparency" (Settings): glass, sheets and blurs draw as solid surfaces. */
+val LocalReduceTransparency = staticCompositionLocalOf { false }
+
+/** Stands in for the system haptics when the user turns Haptics off in Settings. */
+private object NoHaptics : HapticFeedback {
+    override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) = Unit
+}
+
+// Every Material component maps onto the same type roles. Built once: it never changes.
+private val PortlandTypography = Typography(
+    displayLarge = Type.largeTitle, displayMedium = Type.largeTitle, displaySmall = Type.largeTitle,
+    headlineLarge = Type.largeTitle, headlineMedium = Type.title, headlineSmall = Type.title,
+    titleLarge = Type.title, titleMedium = Type.headline, titleSmall = Type.headline,
+    bodyLarge = Type.body, bodyMedium = Type.body, bodySmall = Type.footnote,
+    labelLarge = Type.body.copy(fontWeight = FontWeight.Medium), labelMedium = Type.footnote, labelSmall = Type.label,
+)
+
+private fun schemeFor(p: Palette): ColorScheme {
     val sheet = p.sheet
-    val base = if (dark) darkColorScheme() else lightColorScheme()
-    val scheme = base.copy(
+    return (if (p.dark) darkColorScheme() else lightColorScheme()).copy(
         primary = p.ink, onPrimary = p.canvas, secondary = p.ink, onSecondary = p.canvas,
         background = p.canvas, onBackground = p.ink, surface = p.canvas, onSurface = p.ink,
         onSurfaceVariant = p.ink2, outline = p.line, outlineVariant = p.line,
@@ -348,15 +492,49 @@ fun PortlandTheme(content: @Composable () -> Unit) {
         surfaceContainerHigh = sheet, surfaceContainerHighest = sheet, surfaceTint = Color.Transparent,
         scrim = p.scrim,
     )
-    // Every Material component maps onto the same roles.
-    val type = Typography(
-        displayLarge = Type.largeTitle, displayMedium = Type.largeTitle, displaySmall = Type.largeTitle,
-        headlineLarge = Type.largeTitle, headlineMedium = Type.title, headlineSmall = Type.title,
-        titleLarge = Type.title, titleMedium = Type.headline, titleSmall = Type.headline,
-        bodyLarge = Type.body, bodyMedium = Type.body, bodySmall = Type.footnote,
-        labelLarge = Type.body.copy(fontWeight = FontWeight.Medium), labelMedium = Type.footnote, labelSmall = Type.label,
-    )
-    CompositionLocalProvider(LocalPalette provides p) {
-        MaterialTheme(colorScheme = scheme, typography = type, content = content)
+}
+private val LightScheme by lazy(LazyThreadSafetyMode.NONE) { schemeFor(Light) }
+private val DarkScheme by lazy(LazyThreadSafetyMode.NONE) { schemeFor(Dark) }
+
+/** Resolves Settings' theme choice against the system, for code outside [PortlandTheme]. */
+@Composable
+fun ThemeMode.isDark(): Boolean = when (this) {
+    ThemeMode.System -> isSystemInDarkTheme()
+    ThemeMode.Light -> false
+    ThemeMode.Dark -> true
+}
+
+@Composable
+fun PortlandTheme(content: @Composable () -> Unit) {
+    val context = LocalContext.current
+    val prefs by remember(context) { Prefs.state(context) }.collectAsState()
+    val dark = prefs.theme.isDark()
+    val p = if (dark) Dark else Light
+    // The activity handles uiMode changes itself (no recreation), so the window and system bars follow here.
+    val activity = context as? ComponentActivity
+    if (activity != null) {
+        LaunchedEffect(activity, dark) {
+            activity.window.setBackgroundDrawable(ColorDrawable(p.canvas.toArgb()))
+            activity.enableEdgeToEdge(
+                statusBarStyle = SystemBarStyle.auto(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT) { dark },
+                navigationBarStyle = SystemBarStyle.auto(NavScrimLight, NavScrimDark) { dark },
+            )
+        }
+    }
+    val systemHaptics = LocalHapticFeedback.current
+    val haptics = rememberHaptics(prefs.haptics)
+    CompositionLocalProvider(
+        LocalPalette provides p,
+        LocalReduceTransparency provides prefs.reduceTransparency,
+        LocalHaptics provides haptics,
+        LocalWindowBlur provides rememberSystemWindowBlur(),
+        // Material components' own feedback obeys the same switch.
+        LocalHapticFeedback provides if (prefs.haptics) systemHaptics else NoHaptics,
+    ) {
+        MaterialTheme(colorScheme = if (dark) DarkScheme else LightScheme, typography = PortlandTypography, content = content)
     }
 }
+
+// enableEdgeToEdge()'s own defaults for the 3-button navigation bar scrim.
+private val NavScrimLight = AndroidColor.argb(0xe6, 0xFF, 0xFF, 0xFF)
+private val NavScrimDark = AndroidColor.argb(0x80, 0x1b, 0x1b, 0x1b)

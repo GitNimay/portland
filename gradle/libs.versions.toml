@@ -16,6 +16,8 @@ profileinstaller = "1.4.1"
 junit = "4.13.2"
 ytdl = "0.18.1"
 orgJson = "20260814"
+baselineprofile = "1.5.0"
+androidxJunit = "1.3.0"
 
 [libraries]
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core" }
@@ -40,7 +42,11 @@ junit = { group = "junit", name = "junit", version.ref = "junit" }
 ytdl = { group = "io.github.junkfood02.youtubedl-android", name = "library", version.ref = "ytdl" }
 ytdl-ffmpeg = { group = "io.github.junkfood02.youtubedl-android", name = "ffmpeg", version.ref = "ytdl" }
 org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
+benchmark-macro = { group = "androidx.benchmark", name = "benchmark-macro-junit4", version.ref = "baselineprofile" }
+androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxJunit" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+android-test = { id = "com.android.test", version.ref = "agp" }
+baselineprofile = { id = "androidx.baselineprofile", version.ref = "baselineprofile" }

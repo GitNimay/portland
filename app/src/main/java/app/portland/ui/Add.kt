@@ -63,11 +63,9 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -112,7 +110,7 @@ fun BoxScope.AddMenu(backdrop: Backdrop, boardId: String?, visible: Boolean = tr
     val p = LocalPalette.current
     val context = LocalContext.current
     val store = context.store
-    val haptics = LocalHapticFeedback.current
+    val haptics = LocalHaptics.current
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     var stage by rememberSaveable { mutableStateOf(Stage.Closed) }
@@ -133,13 +131,13 @@ fun BoxScope.AddMenu(backdrop: Backdrop, boardId: String?, visible: Boolean = tr
 
     // A sideways shake, as iOS does for a wrong passcode: a spring kicked with velocity, settling at rest.
     fun reject() {
-        haptics.performHapticFeedback(HapticFeedbackType.Reject)
+        haptics.play(Fx.Reject)
         scope.launch { shake.animateTo(0f, spring(dampingRatio = 0.2f, stiffness = 900f), initialVelocity = 900f) }
     }
 
     fun save(text: String) {
         val url = Links.find(text) ?: return reject()
-        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+        haptics.play(Fx.Confirm)
         Links.enqueue(context, url, boardId)
         close()
     }
@@ -257,7 +255,7 @@ fun BoxScope.AddMenu(backdrop: Backdrop, boardId: String?, visible: Boolean = tr
                             if (open) {
                                 close()
                             } else {
-                                haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                haptics.play(Fx.Tick)
                                 stage = Stage.Icons
                             }
                         }

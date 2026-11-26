@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.MotionEvent
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -26,6 +27,7 @@ import kotlin.time.Duration.Companion.minutes
 
 class MainActivity : ComponentActivity() {
     private val pendingPinId = mutableStateOf<String?>(null)
+    private val frameRate = FrameRateBoost(this)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -39,6 +41,7 @@ class MainActivity : ComponentActivity() {
         introPlayed = true
         // Cut the system splash instead of letting it fade: the intro's first frame is the same picture.
         if (play && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) splashScreen.setOnExitAnimationListener { it.remove() }
+        if (play) frameRate.pulse(INTRO_BOOST_MS) // the intro is the first thing anyone sees: give it every frame
         setContent {
             PortlandTheme {
                 IntroHost(play) {
@@ -72,9 +75,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
+        frameRate.stop()
         Updater.foreground = false
         // The quiet hour after a visit counts from when the user left, not when they arrived (throttled, off-main).
         Reminders.recordAppActive(applicationContext, force = true)
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        frameRate.onTouch(ev)
+        return super.dispatchTouchEvent(ev)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -89,6 +98,7 @@ class MainActivity : ComponentActivity() {
         intent.removeExtra(Reminders.EXTRA_PIN_ID)
         Reminders.recordOpened(applicationContext, pinId)
         pendingPinId.value = pinId
+        frameRate.pulse() // the pin flies open without a touch
     }
 
     /** "Share to Portland" from any app. */
@@ -115,6 +125,9 @@ class MainActivity : ComponentActivity() {
         store.launch { add(uris, null) }
     }
 }
+
+// The intro plays for about two seconds, then hands over to the feed.
+private const val INTRO_BOOST_MS = 3000L
 
 /** Survives activity recreation but not the process: the intro is a cold-start treat, not an every-return toll. */
 private var introPlayed = false

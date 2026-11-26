@@ -3,6 +3,7 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.baselineprofile)
 }
 
 // Secrets come from local.properties (git-ignored) on a dev machine, or from env vars in CI
@@ -95,9 +96,30 @@ dependencies {
     implementation(libs.shapes)
     implementation(libs.work.runtime)
     implementation(libs.profileinstaller)
+    baselineProfile(project(":baselineprofile"))
     implementation(libs.ytdl)
     implementation(libs.ytdl.ffmpeg)
     debugImplementation(libs.compose.ui.tooling)
     testImplementation(libs.junit)
     testImplementation(libs.org.json)
+}
+
+// Baseline profile: the app's own hot code (feed, viewer, glass) compiled ahead of time at install, so the first
+// launch and first scroll don't run interpreted. Generated on a device with
+//   ./gradlew :app:generateReleaseBaselineProfile -Pabis=x86_64
+// and committed under src/release/generated; release builds only merge the committed file.
+baselineProfile {
+    automaticGenerationDuringBuild = false
+    dexLayoutOptimization = true
+}
+
+// The profile is recorded from a separate install (app.portland.bp) with no R2 or AI credentials, so generating
+// one can never replace the real app (the test runner uninstalls its target) or touch the cloud library.
+androidComponents {
+    onVariants(selector().withBuildType("nonMinifiedRelease")) { variant ->
+        variant.applicationId.set("app.portland.bp")
+        for (key in listOf("R2_ACCOUNT_ID", "R2_ACCESS_KEY", "R2_SECRET_KEY", "R2_BUCKET", "AI_TOKEN")) {
+            variant.buildConfigFields?.put(key, com.android.build.api.variant.BuildConfigField("String", "\"\"", "profiling build: local-only"))
+        }
+    }
 }

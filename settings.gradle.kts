@@ -14,3 +14,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "Portland"
 include(":app")
+include(":baselineprofile")

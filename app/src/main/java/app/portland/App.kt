@@ -3,6 +3,7 @@ package app.portland
 import android.app.Application
 import android.content.Context
 import app.portland.data.Captions
+import app.portland.data.Prefs
 import app.portland.data.R2
 import app.portland.data.Reminders
 import app.portland.data.Store
@@ -30,7 +31,10 @@ class App : Application(), SingletonImageLoader.Factory {
         store = Store(this)
         // Warm ImageLoader / DiskCache / OkHttp off the main thread, and defer housekeeping until first frames settle.
         store.launch {
-            withContext(Dispatchers.IO) { SingletonImageLoader.get(this@App) }
+            withContext(Dispatchers.IO) {
+                Prefs.warm(this@App) // theme and haptics: read before the first frame asks for them
+                SingletonImageLoader.get(this@App)
+            }
             delay(STARTUP_GRACE_MS)
             Sync.schedule(this@App) // pulls anything added from another install
             Captions.schedule(this@App) // finishes descriptions interrupted by a process death

@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import app.portland.R
 import com.kyant.backdrop.Backdrop
@@ -62,52 +63,101 @@ data class Palette(
     val sheet: Color, // dialogs, menus, bottom sheets (Apple elevated background)
     val glass: Color, // the faint film on clear glass floating over content
     val glassFlat: Color, // glass sitting on the plain canvas (search field, cells, segmented track)
+    val glassRegular: Color, // the film on regular (frosted) glass: panels that carry text
     val glassSolid: Color, // glass stand-in where backdrop effects are unavailable (Android 11)
     val thumb: Color,  // selected segment of a segmented control
     val danger: Color, // destructive actions (Apple systemRed)
     val dark: Boolean,
     val shimmer: Color, // the light that sweeps over a loading placeholder
+    val scrim: Color, // dims content behind a panel, shelf or sheet: one strength everywhere
 )
 
 private val Light = Palette(
     canvas = Color.White, ink = Color.Black, ink2 = Color.Black.copy(0.64f),
     ink3 = Color.Black.copy(0.56f), line = Color.Black.copy(0.10f), fill = Color(0x1F767680),
     sheet = Color(0xFFF9F9F9), glass = Color.White.copy(0.14f), glassFlat = Color(0x1A767680),
+    glassRegular = Color(0xFFF9F9F9).copy(0.62f),
     glassSolid = Color(0xF2F6F6F8), thumb = Color.White, danger = Color(0xFFFF3B30), dark = false,
-    shimmer = Color.White.copy(0.7f),
+    shimmer = Color.White.copy(0.7f), scrim = Color.Black.copy(0.18f),
 )
 private val Dark = Palette(
     canvas = Color.Black, ink = Color.White, ink2 = Color.White.copy(0.60f),
     ink3 = Color.White.copy(0.48f), line = Color.White.copy(0.14f), fill = Color(0x3D767680),
     sheet = Color(0xFF1C1C1E), glass = Color.Black.copy(0.10f), glassFlat = Color.White.copy(0.09f),
+    glassRegular = Color(0xFF1C1C1E).copy(0.58f),
     glassSolid = Color(0xF21C1C1E), thumb = Color.White.copy(0.20f), danger = Color(0xFFFF453A), dark = true,
-    shimmer = Color.White.copy(0.07f),
+    shimmer = Color.White.copy(0.07f), scrim = Color.Black.copy(0.40f),
 )
 
-private fun geist(weight: Int) =
-    Font(R.font.geist, FontWeight(weight), variationSettings = FontVariation.Settings(FontVariation.weight(weight)))
+private fun inter(weight: Int, opsz: Float) = Font(
+    R.font.inter,
+    FontWeight(weight),
+    variationSettings = FontVariation.Settings(FontVariation.weight(weight), FontVariation.Setting("opsz", opsz)),
+)
 
-val Geist = FontFamily(geist(400), geist(500), geist(600))
+/** Inter's text cut (optical size 14): open spacing that stays legible at UI sizes. */
+val InterText = FontFamily(inter(400, 14f), inter(500, 14f), inter(600, 14f), inter(700, 14f))
 
-/** The only three type sizes in the app. Vary weight and ink, never size. */
+/** Inter's display cut (optical size 32): tighter, finer letterforms for large titles. */
+val InterDisplay = FontFamily(inter(600, 32f), inter(700, 32f))
+
+/**
+ * Apple's type roles, set in Inter (SF Pro may only ship on Apple platforms). Inter has a taller x-height than
+ * SF, so the body sizes sit 1sp under Apple's (16 for 17) to read at the same size. Tracking follows Inter's own
+ * dynamic-metrics formula (−0.0223 + 0.185·e^(−0.1745·size) em): tight at titles, slightly open at labels.
+ * Pick a role, not a size; vary weight and ink within a role.
+ */
 object Type {
-    val display = TextStyle(fontFamily = Geist, fontWeight = FontWeight.SemiBold, fontSize = 30.sp, lineHeight = 36.sp, letterSpacing = (-0.8).sp)
-    val body = TextStyle(fontFamily = Geist, fontWeight = FontWeight.Normal, fontSize = 16.sp, lineHeight = 22.sp, letterSpacing = (-0.2).sp)
-    val caption = TextStyle(fontFamily = Geist, fontWeight = FontWeight.Normal, fontSize = 13.sp, lineHeight = 18.sp, letterSpacing = (-0.05).sp)
+    /** Screen titles that scroll away: "Portland", a board's name. */
+    val largeTitle = TextStyle(fontFamily = InterDisplay, fontWeight = FontWeight.Bold, fontSize = 34.sp, lineHeight = 41.sp, letterSpacing = (-0.022).em)
+    /** Section and sheet titles. */
+    val title = TextStyle(fontFamily = InterDisplay, fontWeight = FontWeight.Bold, fontSize = 22.sp, lineHeight = 28.sp, letterSpacing = (-0.018).em)
+    /** Emphasised body: dialog titles, the viewer's date, "3 selected". */
+    val headline = TextStyle(fontFamily = InterText, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 22.sp, letterSpacing = (-0.011).em)
+    /** Running text, fields, rows. */
+    val body = TextStyle(fontFamily = InterText, fontWeight = FontWeight.Normal, fontSize = 16.sp, lineHeight = 22.sp, letterSpacing = (-0.011).em)
+    /** Secondary rows: board names under covers, menu items. */
+    val subhead = TextStyle(fontFamily = InterText, fontWeight = FontWeight.Normal, fontSize = 15.sp, lineHeight = 20.sp, letterSpacing = (-0.009).em)
+    /** Metadata, counts, captions, explanations. */
+    val footnote = TextStyle(fontFamily = InterText, fontWeight = FontWeight.Normal, fontSize = 13.sp, lineHeight = 18.sp, letterSpacing = (-0.003).em)
+    /** One word under an icon, badges. */
+    val label = TextStyle(fontFamily = InterText, fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 13.sp, letterSpacing = 0.005.em)
 }
+
+/** Tabular figures, so times and counts don't jitter as their digits change. */
+fun TextStyle.digits(): TextStyle = copy(fontFeatureSettings = "tnum")
 
 /**
  * Continuous-curvature ("squircle") corners, as on iOS. Use these instead of RoundedCornerShape.
- * They are [RoundedRectangularShape]s, which the glass lens needs.
+ * They are [RoundedRectangularShape]s, which the glass lens needs. Nest them concentrically: a shape inset by
+ * `p` inside one of radius `r` takes radius `r − p` (a 16dp-padded row in a 34dp sheet is [tile]-ish, 18dp).
  */
 object Corners {
     val pill: RoundedRectangularShape = Capsule()
+    val bar: RoundedRectangularShape = RoundedRectangle(5.dp)     // skeleton text bars
     val frame: RoundedRectangularShape = RoundedRectangle(7.dp)   // the viewer's filmstrip frames
     val small: RoundedRectangularShape = RoundedRectangle(12.dp)  // thumbnails, inputs, small badges
+    val tile: RoundedRectangularShape = RoundedRectangle(16.dp)   // icon tiles and rows inside panels
+    val menu: RoundedRectangularShape = RoundedRectangle(16.dp)   // dropdown menus
     val card: RoundedRectangularShape = RoundedRectangle(18.dp)   // pins and board covers in grids
     val media: RoundedRectangularShape = RoundedRectangle(26.dp)  // the viewer's media
     val sheet: RoundedRectangularShape = RoundedRectangle(30.dp)  // dialogs and sheets
-    val menu: RoundedRectangularShape = RoundedRectangle(16.dp)   // dropdown menus
+    val sheetRadius = 30.dp // for Material sheets, which take a plain RoundedCornerShape
+}
+
+/**
+ * Icon sizes, after SF Symbols' scales: pick one by where the icon sits, never a one-off. Phosphor's glyphs fill
+ * about 80% of their box. Keep the touch target at least 48dp around any of them.
+ */
+object IconSize {
+    /** A glyph inside a line of footnote text: the play mark on a time pill. */
+    val inline = 10.dp
+    /** Inside fields and small circles: the search field, a close button on a sheet, a selection check. */
+    val small = 16.dp
+    /** The default: glass buttons, toolbars, menu and list rows. */
+    val medium = 20.dp
+    /** Primary or standalone: the add button, tiles. */
+    val large = 24.dp
 }
 
 /**
@@ -123,6 +173,12 @@ object Motion {
     fun <T> press(): FiniteAnimationSpec<T> = spring(dampingRatio = 0.6f, stiffness = 700f)
     /** Dialogs rising from the centre: Material 3 Expressive's default spatial spring, a quick settle. */
     fun <T> dialog(): FiniteAnimationSpec<T> = spring(dampingRatio = 0.8f, stiffness = 380f)
+    /** Glass growing out of the control that opened it (a button into a panel): overshoots a touch, the "jelly". */
+    fun <T> morphOpen(): FiniteAnimationSpec<T> = spring(dampingRatio = 0.72f, stiffness = 260f)
+    /** The same glass folding back into its control: no overshoot. */
+    fun <T> morphClose(): FiniteAnimationSpec<T> = spring(dampingRatio = 1f, stiffness = 380f)
+    /** Anything leaving: sheets, bars, marks. Quick and critically damped, so nothing bounces on its way out. */
+    fun <T> dismiss(): FiniteAnimationSpec<T> = spring(dampingRatio = 1f, stiffness = 420f)
 }
 
 /**
@@ -135,6 +191,11 @@ object Motion {
  * list): you get the same rim and film over [Palette.glassFlat], without refraction. [scale] is read at draw
  * time; drive press feedback through it instead of Modifier.graphicsLayer, which would misplace the
  * refraction. Apply before size/clickable.
+ *
+ * [frost] moves it toward Apple's "regular" variant (0 clear .. 1 regular): the backdrop is frosted (blurred)
+ * and the film thickens to a translucent sheet, so text on the glass reads over any content. Use regular for
+ * panels that carry words (menus, the add panel, the send dock), clear for controls over media. A morph from a
+ * button into a panel animates it from 0 to 1.
  */
 @Composable
 fun Modifier.glass(
@@ -142,6 +203,7 @@ fun Modifier.glass(
     shape: RoundedRectangularShape = Corners.pill,
     tint: Color = Color.Unspecified,
     scale: () -> Float = { 1f },
+    frost: Float = 0f,
 ): Modifier {
     val p = LocalPalette.current
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
@@ -152,11 +214,13 @@ fun Modifier.glass(
             .background(solid)
             .border(0.5.dp, p.line, shape)
     }
-    val surface = when {
+    val f = frost.coerceIn(0f, 1f)
+    val clear = when {
         tint != Color.Unspecified -> tint
         backdrop == null -> p.glassFlat
         else -> p.glass
     }
+    val surface = if (f > 0f) androidx.compose.ui.graphics.lerp(clear, p.glassRegular, f) else clear
     val dark = p.dark
     return this.drawBackdrop(
         backdrop = backdrop ?: emptyBackdrop(),
@@ -164,7 +228,7 @@ fun Modifier.glass(
         effects = {
             if (backdrop != null) {
                 colorControls(brightness = if (dark) 0f else 0.06f, saturation = 1.6f)
-                blur(1.5.dp.toPx())
+                blur((1.5f + (RegularBlur - 1.5f) * f).dp.toPx())
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     val radius = size.minDimension / 2f
                     lens(
@@ -181,6 +245,9 @@ fun Modifier.glass(
         onDrawSurface = { drawRect(surface) },
     )
 }
+
+// Frost radius of regular glass: enough to turn busy content behind it into colour, not detail.
+private const val RegularBlur = 14f
 
 /** Container colour for a dialog or sheet: see-through when [FrostBehind] can blur the app behind it. */
 @Composable
@@ -270,16 +337,15 @@ fun PortlandTheme(content: @Composable () -> Unit) {
         onSurfaceVariant = p.ink2, outline = p.line, outlineVariant = p.line,
         surfaceContainerLowest = sheet, surfaceContainerLow = sheet, surfaceContainer = sheet,
         surfaceContainerHigh = sheet, surfaceContainerHighest = sheet, surfaceTint = Color.Transparent,
-        scrim = Color.Black.copy(alpha = 0.32f),
+        scrim = p.scrim,
     )
-    // Every Material component maps onto the same three sizes.
+    // Every Material component maps onto the same roles.
     val type = Typography(
-        displayLarge = Type.display, displayMedium = Type.display, displaySmall = Type.display,
-        headlineLarge = Type.display, headlineMedium = Type.display, headlineSmall = Type.display,
-        titleLarge = Type.body.copy(fontWeight = FontWeight.SemiBold), titleMedium = Type.body.copy(fontWeight = FontWeight.Medium),
-        titleSmall = Type.body.copy(fontWeight = FontWeight.Medium),
-        bodyLarge = Type.body, bodyMedium = Type.body, bodySmall = Type.caption,
-        labelLarge = Type.body.copy(fontWeight = FontWeight.Medium), labelMedium = Type.caption, labelSmall = Type.caption,
+        displayLarge = Type.largeTitle, displayMedium = Type.largeTitle, displaySmall = Type.largeTitle,
+        headlineLarge = Type.largeTitle, headlineMedium = Type.title, headlineSmall = Type.title,
+        titleLarge = Type.title, titleMedium = Type.headline, titleSmall = Type.headline,
+        bodyLarge = Type.body, bodyMedium = Type.body, bodySmall = Type.footnote,
+        labelLarge = Type.body.copy(fontWeight = FontWeight.Medium), labelMedium = Type.footnote, labelSmall = Type.label,
     )
     CompositionLocalProvider(LocalPalette provides p) {
         MaterialTheme(colorScheme = scheme, typography = type, content = content)

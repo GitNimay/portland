@@ -57,4 +57,4 @@ The signing key (`release.jks`, git-ignored) and its password must never be lost
 - `data/R2.kt`: a hand-written SigV4 OkHttp interceptor, so Coil and ExoPlayer stream straight from the private bucket.
 - `data/Captions.kt`: sends the thumbnail to `@cf/mistralai/mistral-small-3.1-24b-instruct`, four at a time. It was the fastest and most concrete of the vision models benchmarked.
 - `ui/Gestures.kt`: the viewer's swipes. One pointer handler claims a drag only once it is clearly vertical (so the pager and taps keep working), and every frame is read at draw/placement time, so a drag never recomposes. The pulled pin moves by placement (not a layer) so the shared-element transition flies it home from where it was let go, with the finger's velocity.
-- UI: Jetpack Compose, Geist, three type sizes (28/16/13sp), a monochrome alpha-ink palette, light and dark.
+- UI: Jetpack Compose, Inter (variable, with its text and display optical sizes) in seven Apple-style type roles, Phosphor icons, a monochrome alpha-ink palette, clear and frosted Liquid Glass, light and dark. Licences for the font and icons ship in `assets/licenses`.

@@ -1,7 +1,6 @@
 package app.portland.ui
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -82,7 +81,7 @@ fun PortlandDialog(
         if (!leaving) {
             leaving = true
             scope.launch {
-                shown.animateTo(0f, tween(140, easing = FastOutLinearInEasing))
+                shown.animateTo(0f, tween(160))
                 then()
             }
         }
@@ -105,8 +104,8 @@ fun PortlandDialog(
                 .graphicsLayer {
                     val t = shown.value
                     alpha = t.coerceIn(0f, 1f)
-                    // In from 90% with a settle; out to 96% only, so leaving feels quick rather than collapsing.
-                    val s = lerp(if (leaving) 0.96f else 0.9f, 1f, t)
+                    // In from 90% with a settle; out by fading only, as iOS alerts leave.
+                    val s = if (leaving) 1f else lerp(0.9f, 1f, t)
                     scaleX = s
                     scaleY = s
                 }
@@ -114,10 +113,10 @@ fun PortlandDialog(
                 .background(frostedSheet())
                 .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 20.dp),
         ) {
-            Text(title, style = Type.body.copy(fontWeight = FontWeight.SemiBold), color = p.ink)
+            Text(title, style = Type.headline, color = p.ink)
             if (body != null) {
                 Spacer(Modifier.height(6.dp))
-                Text(body, style = Type.caption, color = p.ink2)
+                Text(body, style = Type.footnote, color = p.ink2)
             }
             if (content != null) {
                 Spacer(Modifier.height(16.dp))

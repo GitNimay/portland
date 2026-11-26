@@ -206,7 +206,7 @@ class MediaSwipe internal constructor(
         settle?.cancel()
         settle = scope.launch {
             // The shelf moves with -y; hand the finger's velocity over so the release is seamless.
-            animate(lift, if (open) travel else 0f, -velocityY, ShelfSpring) { v, _ -> lift = v }
+            animate(lift, if (open) travel else 0f, -velocityY, if (open) ShelfSpring else ShelfDownSpring) { v, _ -> lift = v }
             if (!open) rest()
         }
     }
@@ -394,4 +394,5 @@ private const val MediaRise = 0.22f
 // Critically damped returns (no wobble on a cancelled gesture), a little life when the shelf lands.
 private val ReturnSpring = spring<Offset>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 420f)
 private val ShelfSpring = spring<Float>(dampingRatio = 0.86f, stiffness = 420f)
+private val ShelfDownSpring = spring<Float>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 420f) // sheets leave without a bounce
 private val FlyOutSpring = spring(Spring.DampingRatioNoBouncy, 300f, visibilityThreshold = Offset(40f, 40f))

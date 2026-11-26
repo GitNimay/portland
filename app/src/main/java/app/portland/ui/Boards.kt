@@ -122,7 +122,7 @@ fun BoardsGrid(
                     Modifier.fillMaxWidth().aspectRatio(1f).glass(null, Corners.card).clip(CardShape),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(painterResource(R.drawable.ic_plus), contentDescription = null, tint = p.ink2, modifier = Modifier.size(24.dp))
+                    Icon(painterResource(R.drawable.ic_plus), contentDescription = null, tint = p.ink2, modifier = Modifier.size(IconSize.large))
                 }
                 Spacer(Modifier.height(10.dp))
                 Text("New board", style = Type.body.copy(fontWeight = FontWeight.Medium), color = p.ink)
@@ -169,14 +169,14 @@ private fun BoardCell(board: Board, pins: List<Pin>, onClick: () -> Unit) {
         Spacer(Modifier.height(10.dp))
         Text(
             board.name,
-            style = Type.body.copy(fontWeight = FontWeight.Medium),
+            style = Type.subhead.copy(fontWeight = FontWeight.Medium),
             color = p.ink,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
         Text(
             if (pins.size == 1) "1 pin" else "${pins.size} pins",
-            style = Type.caption,
+            style = Type.footnote,
             color = p.ink3,
             modifier = Modifier.padding(top = 2.dp),
         )
@@ -274,7 +274,7 @@ fun BoardScreen(id: String) {
                 IconBtn(R.drawable.ic_back, "Back", backdrop = backdrop) { nav.pop() }
                 Text(
                     board.name,
-                    style = Type.body.copy(fontWeight = FontWeight.SemiBold),
+                    style = Type.headline,
                     color = p.ink,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -297,14 +297,14 @@ fun BoardScreen(id: String) {
                         DropdownMenuItem(
                             text = { Text("Rename", style = Type.body, color = p.ink) },
                             leadingIcon = {
-                                Icon(painterResource(R.drawable.ic_edit), null, tint = p.ink, modifier = Modifier.size(20.dp))
+                                Icon(painterResource(R.drawable.ic_edit), null, tint = p.ink, modifier = Modifier.size(IconSize.medium))
                             },
                             onClick = { menu = false; renaming = true },
                         )
                         DropdownMenuItem(
                             text = { Text("Delete board", style = Type.body, color = p.danger) },
                             leadingIcon = {
-                                Icon(painterResource(R.drawable.ic_trash), null, tint = p.danger, modifier = Modifier.size(20.dp))
+                                Icon(painterResource(R.drawable.ic_trash), null, tint = p.danger, modifier = Modifier.size(IconSize.medium))
                             },
                             onClick = { menu = false; confirming = true },
                         )
@@ -327,14 +327,14 @@ fun BoardScreen(id: String) {
             ) {
                 Text(
                     board.name,
-                    style = Type.display,
+                    style = Type.largeTitle,
                     color = p.ink,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     if (pins.size == 1) "1 pin" else "${pins.size} pins",
-                    style = Type.caption,
+                    style = Type.footnote,
                     color = p.ink3,
                     modifier = Modifier.padding(top = 4.dp),
                 )
@@ -405,7 +405,7 @@ fun BoardPickerSheet(
         onDismissRequest = onDismiss,
         containerColor = frostedSheet(),
         tonalElevation = 0.dp,
-        shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
+        shape = RoundedCornerShape(topStart = Corners.sheetRadius, topEnd = Corners.sheetRadius),
         dragHandle = {
             BottomSheetDefaults.DragHandle(width = 36.dp, height = 5.dp, color = p.ink3.copy(alpha = 0.5f))
         },
@@ -413,7 +413,7 @@ fun BoardPickerSheet(
         FrostBehind()
         Text(
             title,
-            style = Type.body.copy(fontWeight = FontWeight.SemiBold),
+            style = Type.headline,
             color = p.ink,
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 12.dp),
@@ -472,7 +472,7 @@ private fun PickerRow(label: String, selected: Boolean, visual: @Composable () -
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        if (selected) Icon(painterResource(R.drawable.ic_check), contentDescription = "Selected", tint = p.ink, modifier = Modifier.size(20.dp))
+        if (selected) Icon(painterResource(R.drawable.ic_check), contentDescription = "Selected", tint = p.ink, modifier = Modifier.size(IconSize.medium))
     }
 }
 
@@ -480,7 +480,7 @@ private fun PickerRow(label: String, selected: Boolean, visual: @Composable () -
 private fun AddGlyph() {
     val p = LocalPalette.current
     Box(Modifier.size(44.dp).clip(Corners.small).background(p.fill), contentAlignment = Alignment.Center) {
-        Icon(painterResource(R.drawable.ic_plus), contentDescription = null, tint = p.ink2, modifier = Modifier.size(20.dp))
+        Icon(painterResource(R.drawable.ic_plus), contentDescription = null, tint = p.ink2, modifier = Modifier.size(IconSize.medium))
     }
 }
 
@@ -488,7 +488,7 @@ private fun AddGlyph() {
 private fun ClearGlyph() {
     val p = LocalPalette.current
     Box(Modifier.size(44.dp).clip(Corners.small).background(p.fill), contentAlignment = Alignment.Center) {
-        Icon(painterResource(R.drawable.ic_close), contentDescription = null, tint = p.ink3, modifier = Modifier.size(18.dp))
+        Icon(painterResource(R.drawable.ic_close), contentDescription = null, tint = p.ink3, modifier = Modifier.size(IconSize.small))
     }
 }
 

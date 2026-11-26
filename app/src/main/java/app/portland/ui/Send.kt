@@ -7,28 +7,30 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.provider.MediaStore
 import android.webkit.MimeTypeMap
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.annotation.DrawableRes
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,18 +39,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import app.portland.MainActivity
@@ -56,20 +55,22 @@ import app.portland.R
 import app.portland.data.Pin
 import app.portland.data.R2
 import app.portland.store
-import coil3.compose.AsyncImage
 import com.kyant.backdrop.Backdrop
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import java.io.File
 
 /**
- * The send shelf: rises from the bottom while a pin's media is pushed up (a [MediaSwipe] in Send mode) and
- * settles open on release, or opens from the Share button. "Send…" hands the original file to the system
- * share sheet; saving to the gallery and copying stay one tap away. Compose it last in the screen's Box so
- * it sits over everything; it composes nothing while the shelf is down.
+ * The send dock: three icon-only buttons on a capsule of frosted glass (share, save to the gallery, copy), with
+ * no header or captions, since the pin itself sits right above it. It rises from the bottom while a pin's
+ * media is pushed up (a [MediaSwipe] in Send mode) and settles open on release, or opens from the Share
+ * button. Each button answers in place: a spinner while the file is fetched, a check when it is done (then
+ * the dock sinks away), a warning if it failed. Share hands the original file to the system share sheet.
+ * Compose it last in the screen's Box so it sits over everything; it composes nothing while the dock is down.
  */
 @Composable
 fun BoxScope.SendShelf(swipe: MediaSwipe, pin: Pin?, backdrop: Backdrop?) {
@@ -79,47 +80,52 @@ fun BoxScope.SendShelf(swipe: MediaSwipe, pin: Pin?, backdrop: Backdrop?) {
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     var busy by remember(pin.id) { mutableStateOf<Action?>(null) }
+    var done by remember(pin.id) { mutableStateOf<Action?>(null) }
+    var failed by remember(pin.id) { mutableStateOf<Action?>(null) }
     val open = swipe.shelfOpen
 
     BackHandler(open) { swipe.closeShelf() }
 
     fun run(action: Action) {
-        if (busy != null) return
+        if (busy != null || done != null) return
         busy = action
+        failed = null
         scope.launch {
             try {
                 val file = shareableFile(context, pin)
                 when (action) {
                     Action.Send -> context.startActivity(shareIntent(context, file, pin))
-                    Action.Save -> {
-                        saveToGallery(context, file, pin)
-                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                        toast(context, if (pin.video) "Video saved to your gallery" else "Image saved to your gallery")
-                    }
-                    Action.Copy -> {
-                        copyToClipboard(context, file, pin)
-                        // Android 13+ confirms a copy itself.
-                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) toast(context, "Image copied")
-                    }
+                    Action.Save -> saveToGallery(context, file, pin)
+                    Action.Copy -> copyToClipboard(context, file, pin)
+                }
+                busy = null
+                if (action != Action.Send) {
+                    // The check is the confirmation: no toast. Let it land before the dock sinks.
+                    done = action
+                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                    delay(650)
                 }
                 swipe.closeShelf()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                haptics.performHapticFeedback(HapticFeedbackType.Reject)
-                toast(context, if (R2.enabled) "Couldn't get this pin. Check your connection." else "This pin's file is missing.")
-            } finally {
                 busy = null
+                failed = action
+                haptics.performHapticFeedback(HapticFeedbackType.Reject)
+                // A failure is the one thing worth words: say what went wrong.
+                toast(context, if (R2.enabled) "Couldn't get this pin. Check your connection." else "This pin's file is missing.")
+                delay(1400)
+                if (failed == action) failed = null
             }
         }
     }
 
-    // Scrim: dims with the rise; once open, a tap closes and a drag moves the shelf, as on the shelf itself.
+    // Scrim: dims with the rise; once open, a tap closes and a drag moves the dock, as on the dock itself.
     Box(
         Modifier
             .matchParentSize()
             .graphicsLayer { alpha = swipe.sendProgress }
-            .background(Color.Black.copy(alpha = if (p.dark) 0.45f else 0.22f))
+            .background(p.scrim)
             .then(
                 if (open) {
                     Modifier
@@ -140,90 +146,67 @@ fun BoxScope.SendShelf(swipe: MediaSwipe, pin: Pin?, backdrop: Backdrop?) {
             .graphicsLayer { translationY = size.height - swipe.shelfRise }
             .shelfSwipe(swipe)
             .navigationBarsPadding()
-            .padding(12.dp),
+            .padding(bottom = 24.dp),
         contentAlignment = Alignment.BottomCenter,
     ) {
-        Column(
+        Row(
             Modifier
-                .widthIn(max = 480.dp)
-                .fillMaxWidth()
-                // Denser film than the add panel: the shelf sits over text (caption, note) that would ghost through.
-                .glass(backdrop, Corners.sheet, tint = p.sheet.copy(alpha = if (p.dark) 0.92f else 0.94f))
-                .clip(Corners.sheet)
-                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 16.dp),
+                .glass(backdrop, Corners.pill, frost = 1f)
+                .padding(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            ShelfHeader(pin, enabled = open) { swipe.closeShelf() }
-            Spacer(Modifier.height(14.dp))
-            Option(
-                R.drawable.ic_share,
-                "Send…",
-                if (busy == Action.Send) "Getting it ready…" else "To an app or a person",
-                enabled = open && busy == null,
-            ) { run(Action.Send) }
-            Spacer(Modifier.height(10.dp))
-            Option(
-                R.drawable.ic_download,
-                "Save to gallery",
-                if (busy == Action.Save) "Saving…" else if (pin.video) "Adds a copy to Movies/Portland" else "Adds a copy to Pictures/Portland",
-                enabled = open && busy == null,
-            ) { run(Action.Save) }
-            if (!pin.video) {
-                Spacer(Modifier.height(10.dp))
-                Option(
-                    R.drawable.ic_copy,
-                    "Copy image",
-                    if (busy == Action.Copy) "Copying…" else "Paste it into any app",
-                    enabled = open && busy == null,
-                ) { run(Action.Copy) }
+            val actions = if (pin.video) listOf(Action.Send, Action.Save) else listOf(Action.Send, Action.Save, Action.Copy)
+            actions.forEach { action ->
+                DockButton(
+                    action = action,
+                    state = when (action) {
+                        busy -> DockState.Busy
+                        done -> DockState.Done
+                        failed -> DockState.Failed
+                        else -> DockState.Idle
+                    },
+                    enabled = open && busy == null && done == null,
+                ) { run(action) }
             }
         }
     }
 }
 
-private enum class Action { Send, Save, Copy }
+private enum class Action(@DrawableRes val icon: Int, val label: String) {
+    Send(R.drawable.ic_share, "Share"),
+    Save(R.drawable.ic_download, "Save to gallery"),
+    Copy(R.drawable.ic_copy, "Copy image"),
+}
 
+private enum class DockState { Idle, Busy, Done, Failed }
+
+/** One round button of the dock. Its icon gives way to a spinner, a check or a warning, each springing in. */
 @Composable
-private fun ShelfHeader(pin: Pin, enabled: Boolean, onClose: () -> Unit) {
+private fun DockButton(action: Action, state: DockState, enabled: Boolean, onClick: () -> Unit) {
     val p = LocalPalette.current
-    val store = LocalContext.current.store
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        AsyncImage(
-            model = remember(pin.id) { store.thumb(pin) },
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.size(44.dp).clip(Corners.small).background(p.fill),
-        )
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                pin.note.ifBlank { pin.caption.orEmpty() }.ifBlank { if (pin.video) "Video" else "Image" },
-                style = Type.body.copy(fontWeight = FontWeight.SemiBold),
-                color = p.ink,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                buildString {
-                    append(pin.ext.uppercase())
-                    if (pin.w > 0 && pin.h > 0) append(" · ${pin.w}×${pin.h}")
-                    if (pin.video && pin.durationMs > 0) append(" · ${formatDuration(pin.durationMs)}")
-                },
-                style = Type.caption,
-                color = p.ink3,
-            )
-        }
-        Box(
-            Modifier
-                .padding(start = 8.dp)
-                .size(32.dp)
-                .clip(CircleShape)
-                .background(p.fill)
-                .clickable(enabled = enabled, role = Role.Button, onClickLabel = "Close", onClick = onClose),
+    GlassIcon(action.icon, action.label, size = 56.dp, fill = p.fill, enabled = enabled, onClick = onClick, content = {
+        AnimatedContent(
+            targetState = state,
+            transitionSpec = {
+                (fadeIn(tween(160)) + scaleIn(Motion.bouncy(), initialScale = 0.5f)) togetherWith
+                    (fadeOut(tween(100)) + scaleOut(Motion.dismiss(), targetScale = 0.5f)) using null
+            },
             contentAlignment = Alignment.Center,
-        ) {
-            Icon(painterResource(R.drawable.ic_close), contentDescription = "Close", tint = p.ink2, modifier = Modifier.size(16.dp))
+            label = "dock",
+        ) { s ->
+            when (s) {
+                DockState.Idle -> Icon(painterResource(action.icon), contentDescription = action.label, tint = p.ink, modifier = Modifier.size(IconSize.large))
+                DockState.Busy -> CircularProgressIndicator(
+                    color = p.ink,
+                    trackColor = Color.Transparent,
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.size(IconSize.medium).semantics { contentDescription = "Working" },
+                )
+                DockState.Done -> Icon(painterResource(R.drawable.ic_check), contentDescription = "Done", tint = p.ink, modifier = Modifier.size(IconSize.large))
+                DockState.Failed -> Icon(painterResource(R.drawable.ic_warning), contentDescription = "Failed", tint = p.danger, modifier = Modifier.size(IconSize.large))
+            }
         }
-    }
+    })
 }
 
 private fun mime(pin: Pin): String =

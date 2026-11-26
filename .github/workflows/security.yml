@@ -9,11 +9,6 @@ on:
   schedule:
     - cron: "0 3 * * 1"
   workflow_dispatch:
-    inputs:
-      zap_target_url:
-        description: "Optional web/API URL to scan with OWASP ZAP Baseline"
-        required: false
-        default: ""
 
 concurrency:
   group: security-${{ github.ref }}
@@ -169,37 +164,3 @@ jobs:
     with:
       fail-on-vuln: true
       upload-sarif: true
-
-  zap-baseline:
-    name: OWASP ZAP Baseline
-    if: github.event_name != 'pull_request' && ((github.event_name == 'workflow_dispatch' && inputs.zap_target_url != '') || vars.ZAP_TARGET_URL != '')
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-      issues: write
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Run OWASP ZAP Baseline Scan
-        uses: zaproxy/action-baseline@v0.15.0
-        with:
-          target: ${{ inputs.zap_target_url || vars.ZAP_TARGET_URL }}
-          fail_action: true
-          allow_issue_writing: false
-          artifact_name: zap-baseline-report
-
-  zap-status:
-    name: OWASP ZAP DAST Status
-    if: github.event_name != 'pull_request' && !(github.event_name == 'workflow_dispatch' && inputs.zap_target_url != '') && vars.ZAP_TARGET_URL == ''
-    runs-on: ubuntu-slim
-    timeout-minutes: 5
-    steps:
-      - name: Report DAST configuration status
-        run: |
-          {
-            echo "### OWASP ZAP Baseline (DAST)"
-            echo "Skipped active DAST scan: Portland is a native Android app with no hosted web target configured."
-            echo ""
-            echo "To enable automated OWASP ZAP scanning against a web app or backend API, set repository variable \`ZAP_TARGET_URL\` or run this workflow manually with \`zap_target_url\`."
-          } >> "$GITHUB_STEP_SUMMARY"

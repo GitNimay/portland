@@ -1,11 +1,9 @@
 package app.portland.ui
 
-import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import android.os.SystemClock
-import android.webkit.MimeTypeMap
 import androidx.annotation.OptIn
+import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -25,10 +23,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -41,8 +41,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -62,23 +63,27 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.round
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.core.content.FileProvider
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -99,17 +104,18 @@ import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
-import me.saket.telephoto.zoomable.coil3.ZoomableAsyncImage
-import okhttp3.Request
-import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.coroutines.delay
+import me.saket.telephoto.zoomable.coil3.ZoomableAsyncImage
+import me.saket.telephoto.zoomable.rememberZoomableImageState
 
+/**
+ * Swipeable viewer over [ids]. Gestures on a pin's media (see [MediaSwipe]): pull it down to go back to
+ * where it was opened from, push it up for the send shelf; sideways pages between pins.
+ */
 @Composable
 fun DetailScreen(ids: List<String>, start: Int) {
     val p = LocalPalette.current
@@ -134,12 +140,16 @@ fun DetailScreen(ids: List<String>, start: Int) {
     var menu by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf(false) }
     val backdrop = rememberLayerBackdrop { drawRect(p.canvas); drawContent() }
+    // A committed pull pops straight away: the shared-element transition carries the media home from where it was let go.
+    val swipe = rememberMediaSwipe { nav.pop() }
+    val chrome = Modifier.graphicsLayer { alpha = 1f - swipe.dismissProgress }
 
     Box(Modifier.fillMaxSize().background(p.canvas)) {
         HorizontalPager(
             state = pager,
             modifier = Modifier.fillMaxSize().layerBackdrop(backdrop),
             beyondViewportPageCount = 1,
+            userScrollEnabled = !swipe.shelfOpen,
             key = { pins[it].id },
         ) { page ->
             val pin = pins[page]
@@ -147,12 +157,13 @@ fun DetailScreen(ids: List<String>, start: Int) {
                 pin = pin,
                 boardName = lib.boards.firstOrNull { it.id == pin.boardId }?.name,
                 active = pager.settledPage == page,
+                swipe = swipe,
             )
         }
 
         // Keeps content from running under the status bar icons.
         Box(
-            Modifier.fillMaxWidth()
+            chrome.fillMaxWidth()
                 .background(
                     Brush.verticalGradient(
                         0f to p.canvas.copy(alpha = 0.96f),
@@ -165,28 +176,12 @@ fun DetailScreen(ids: List<String>, start: Int) {
         )
 
         Row(
-            Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
+            chrome.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconBtn(R.drawable.ic_back, "Back", backdrop = backdrop) { nav.pop() }
             Spacer(Modifier.weight(1f))
-            IconBtn(R.drawable.ic_share, "Share", backdrop = backdrop) {
-                val pin = current
-                store.launch {
-                    val local = mediaFile(pin)
-                    val file = if (local.exists()) local else {
-                        val out = File(File(context.cacheDir, "shared").apply { mkdirs() }, "${pin.id}.${pin.ext}")
-                        withContext(Dispatchers.IO) {
-                            R2.http.newCall(Request.Builder().url(R2.url(pin.mediaKey)).build()).execute().use { res ->
-                                check(res.isSuccessful) { "share download failed: ${res.code}" }
-                                res.body.byteStream().use { input -> out.outputStream().use { input.copyTo(it) } }
-                            }
-                        }
-                        out
-                    }
-                    shareFile(context, file, pin)
-                }
-            }
+            IconBtn(R.drawable.ic_share, "Share", backdrop = backdrop) { swipe.openShelf(current.id) }
             Spacer(Modifier.width(8.dp))
             Box {
                 IconBtn(R.drawable.ic_more, "More", backdrop = backdrop) { menu = true }
@@ -208,6 +203,8 @@ fun DetailScreen(ids: List<String>, start: Int) {
                 }
             }
         }
+
+        SendShelf(swipe, pins.firstOrNull { it.id == swipe.id }, backdrop)
     }
 
     if (confirm) DeletePinsDialog(
@@ -223,12 +220,13 @@ fun DetailScreen(ids: List<String>, start: Int) {
 }
 
 @Composable
-private fun PinPage(pin: Pin, boardName: String?, active: Boolean) {
+private fun PinPage(pin: Pin, boardName: String?, active: Boolean, swipe: MediaSwipe) {
     val p = LocalPalette.current
     val store = LocalContext.current.store
     var text by remember(pin.id) { mutableStateOf(pin.note) }
     var picker by remember(pin.id) { mutableStateOf(false) }
     val latest = rememberUpdatedState(text)
+    val scroll = rememberScrollState()
 
     // Debounced autosave while typing; the dispose hook catches a quick back-out.
     LaunchedEffect(text) {
@@ -246,56 +244,60 @@ private fun PinPage(pin: Pin, boardName: String?, active: Boolean) {
             .statusBarsPadding()
             .imePadding()
             .navigationBarsPadding()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scroll)
             .padding(horizontal = 16.dp)
             .padding(top = 64.dp),
     ) {
-        MediaBox(pin, active)
-        RevealText(pin.caption.orEmpty()) {
-            Text(it, style = Type.body, color = p.ink2, modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 20.dp))
-        }
-        Spacer(Modifier.height(24.dp))
-        Row(
-            Modifier.fillMaxWidth().heightIn(min = 52.dp)
-                .glass(null, Corners.card)
-                .clip(Corners.card)
-                .clickable(role = Role.Button, onClickLabel = "Change board") { picker = true }
-                .padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(painterResource(R.drawable.ic_bookmark), null, tint = p.ink, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(12.dp))
-            Text(
-                boardName ?: "No board",
-                style = Type.body.copy(fontWeight = FontWeight.Medium),
-                color = if (boardName != null) p.ink else p.ink3,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+        // Scrolled down to the note, a downward drag on the media scrolls back up rather than closing.
+        MediaBox(pin, active, swipe, canDismiss = { scroll.value == 0 })
+        // Everything but the media fades as it is pulled away, so the pin is what travels back.
+        Column(Modifier.graphicsLayer { alpha = if (swipe.id == pin.id) 1f - swipe.dismissProgress else 1f }) {
+            RevealText(pin.caption.orEmpty()) {
+                Text(it, style = Type.body, color = p.ink2, modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 20.dp))
+            }
+            Spacer(Modifier.height(24.dp))
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                    .glass(null, Corners.card)
+                    .clip(Corners.card)
+                    .clickable(role = Role.Button, onClickLabel = "Change board") { picker = true }
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(painterResource(R.drawable.ic_bookmark), null, tint = p.ink, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    boardName ?: "No board",
+                    style = Type.body.copy(fontWeight = FontWeight.Medium),
+                    color = if (boardName != null) p.ink else p.ink3,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(painterResource(R.drawable.ic_chevron_down), null, tint = p.ink3, modifier = Modifier.size(18.dp))
+            }
+            Spacer(Modifier.height(12.dp))
+            BasicTextField(
+                value = text,
+                onValueChange = { text = it },
+                textStyle = Type.body.copy(color = p.ink),
+                cursorBrush = SolidColor(p.ink),
+                modifier = Modifier.fillMaxWidth().glass(null, Corners.card).clip(Corners.card).heightIn(min = 104.dp).padding(16.dp),
+                decorationBox = { field ->
+                    Box {
+                        if (text.isEmpty()) Text("Add a note", style = Type.body, color = p.ink3)
+                        field()
+                    }
+                },
             )
-            Icon(painterResource(R.drawable.ic_chevron_down), null, tint = p.ink3, modifier = Modifier.size(18.dp))
+            Text(
+                "Saved ${savedDate(pin.createdAt)}",
+                style = Type.caption,
+                color = p.ink3,
+                modifier = Modifier.padding(start = 4.dp, top = 12.dp),
+            )
+            Spacer(Modifier.height(48.dp))
         }
-        Spacer(Modifier.height(12.dp))
-        BasicTextField(
-            value = text,
-            onValueChange = { text = it },
-            textStyle = Type.body.copy(color = p.ink),
-            cursorBrush = SolidColor(p.ink),
-            modifier = Modifier.fillMaxWidth().glass(null, Corners.card).clip(Corners.card).heightIn(min = 104.dp).padding(16.dp),
-            decorationBox = { field ->
-                Box {
-                    if (text.isEmpty()) Text("Add a note", style = Type.body, color = p.ink3)
-                    field()
-                }
-            },
-        )
-        Text(
-            "Saved ${savedDate(pin.createdAt)}",
-            style = Type.caption,
-            color = p.ink3,
-            modifier = Modifier.padding(start = 4.dp, top = 12.dp),
-        )
-        Spacer(Modifier.height(48.dp))
     }
 
     if (picker) BoardPickerSheet(
@@ -308,8 +310,9 @@ private fun PinPage(pin: Pin, boardName: String?, active: Boolean) {
     )
 }
 
+@kotlin.OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-private fun MediaBox(pin: Pin, active: Boolean) {
+private fun MediaBox(pin: Pin, active: Boolean, swipe: MediaSwipe, canDismiss: () -> Boolean) {
     val p = LocalPalette.current
     val store = LocalContext.current.store
     val thumbModel = remember(pin.id) { store.thumb(pin) }
@@ -318,12 +321,27 @@ private fun MediaBox(pin: Pin, active: Boolean) {
     var zoom by remember(pin.id) { mutableStateOf(false) }
     var loaded by remember(pin.id) { mutableStateOf(false) }
     val ratio = pin.w.toFloat() / pin.h.coerceAtLeast(1)
+    // Very tall media is capped (and centred) so there is always page left below it to scroll by;
+    // a drag on the media itself is a swipe, not a scroll. Tap to see it whole.
+    val maxHeight = with(LocalDensity.current) { (LocalWindowInfo.current.containerSize.height * 0.72f).toDp() }
+    val shared = rememberSharedPin(pin.id)
+    DisposableEffect(swipe, pin.id, shared) {
+        swipe.handoffs[pin.id] = { velocity -> shared?.prepareTransitionWithInitialVelocity(velocity) }
+        onDispose { swipe.handoffs.remove(pin.id) }
+    }
 
     Box(
         Modifier
-            .sharedPin(pin.id)
             .fillMaxWidth()
+            .wrapContentWidth()
+            // Before the offset, so the gesture is measured in the still slot, not the moving media.
+            .mediaSwipe(swipe, pin.id, canDismiss)
+            // Placement, not a layer transform: the shared element reads layout, so a pulled pin flies home from where it is.
+            .offset { swipe.mediaOffset(pin.id).round() }
+            .sharedPin(shared)
+            .heightIn(max = maxHeight)
             .aspectRatio(ratio)
+            .graphicsLayer { val s = swipe.mediaScale(pin.id); scaleX = s; scaleY = s }
             .clip(Corners.media)
             .background(p.fill)
             .then(if (loaded) Modifier else Modifier.shimmer(p.shimmer)),
@@ -348,14 +366,31 @@ private fun MediaBox(pin: Pin, active: Boolean) {
         }
     }
 
-    if (zoom) Dialog(
-        onDismissRequest = { zoom = false },
+    if (zoom) ZoomDialog(pin, fullModel, desc) { zoom = false }
+}
+
+/**
+ * Full-screen pinch-zoom. At rest (not zoomed in) the same swipes work as in the viewer: pull the image
+ * down to close (the black fades to show the viewer behind it), push it up for the send shelf.
+ */
+@Composable
+private fun ZoomDialog(pin: Pin, model: Any, description: String?, onClose: () -> Unit) {
+    Dialog(
+        onDismissRequest = onClose,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
-        val zoomBackdrop = rememberLayerBackdrop { drawRect(Color.Black); drawContent() }
+        // Undimmed, so pulling the image away reveals the viewer as it is, not a grey veil.
+        val window = (LocalView.current.parent as? DialogWindowProvider)?.window
+        SideEffect { window?.setDimAmount(0f) }
+        val swipe = rememberMediaSwipe(flyOut = true, onDismiss = onClose)
+        val zoomState = rememberZoomableImageState()
+        val backdrop = rememberLayerBackdrop { drawRect(Color.Black); drawContent() }
+        val fadePx = with(LocalDensity.current) { 360.dp.toPx() }
+        val chrome = Modifier.graphicsLayer { alpha = 1f - swipe.dismissProgress }
         // Opens like a lightbox: the black fades up while the image grows the last few percent into place.
         val open = remember { Animatable(0f) }
         LaunchedEffect(Unit) { open.animateTo(1f, Motion.smooth()) }
+
         Box(
             Modifier
                 .fillMaxSize()
@@ -365,21 +400,42 @@ private fun MediaBox(pin: Pin, active: Boolean) {
                     scaleX = s
                     scaleY = s
                 }
-                .background(Color.Black),
+                // Telephoto keeps a one-finger drag to itself only while zoomed in; at rest it is a swipe.
+                .mediaSwipe(swipe, pin.id, enabled = { (zoomState.zoomableState.zoomFraction ?: 0f) <= 0.01f }),
         ) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .graphicsLayer { alpha = 1f - (swipe.pullY / fadePx).coerceIn(0f, 1f) }
+                    .background(Color.Black),
+            )
             ZoomableAsyncImage(
-                model = fullModel,
-                contentDescription = desc,
+                model = model,
+                contentDescription = description,
+                state = zoomState,
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize().layerBackdrop(zoomBackdrop),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .offset { swipe.mediaOffset(pin.id).round() }
+                    .graphicsLayer { val s = swipe.mediaScale(pin.id); scaleX = s; scaleY = s }
+                    .layerBackdrop(backdrop),
             )
             IconBtn(
                 R.drawable.ic_close,
                 "Close",
-                Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(16.dp),
+                chrome.align(Alignment.TopEnd).statusBarsPadding().padding(16.dp),
                 tint = Color.White,
-                backdrop = zoomBackdrop,
-            ) { zoom = false }
+                backdrop = backdrop,
+                onClick = onClose,
+            )
+            IconBtn(
+                R.drawable.ic_share,
+                "Share",
+                chrome.align(Alignment.TopStart).statusBarsPadding().padding(16.dp),
+                tint = Color.White,
+                backdrop = backdrop,
+            ) { swipe.openShelf(pin.id) }
+            SendShelf(swipe, pin, backdrop)
         }
     }
 }
@@ -679,14 +735,3 @@ private fun Scrubber(
 private fun savedDate(ms: Long): String =
     DateTimeFormatter.ofPattern("d MMM yyyy", Locale.getDefault())
         .format(Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()))
-
-private fun shareFile(context: Context, file: File, pin: Pin) {
-    val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
-    val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(pin.ext)
-        ?: if (pin.video) "video/*" else "image/*"
-    val send = Intent(Intent.ACTION_SEND)
-        .setType(mime)
-        .putExtra(Intent.EXTRA_STREAM, uri)
-        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    context.startActivity(Intent.createChooser(send, "Share"))
-}

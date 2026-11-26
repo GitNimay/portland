@@ -345,7 +345,7 @@ private fun AddPanel(boardId: String?, open: Boolean, onPick: () -> Unit, onClos
 }
 
 @Composable
-private fun Option(@DrawableRes icon: Int, title: String, subtitle: String, enabled: Boolean, onClick: () -> Unit) {
+internal fun Option(@DrawableRes icon: Int, title: String, subtitle: String, enabled: Boolean, onClick: () -> Unit) {
     val p = LocalPalette.current
     val press = remember { MutableInteractionSource() }
     val pressed by press.collectIsPressedAsState()

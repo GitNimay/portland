@@ -1,0 +1,104 @@
+# Path-based area labels & branch-based type labels for actions/labeler@v7
+
+"area/ui":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "app/src/main/java/app/portland/ui/**"
+          - "app/src/main/res/**"
+          - "app/compose-stability.conf"
+
+"area/data":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "app/src/main/java/app/portland/App.kt"
+          - "app/src/main/java/app/portland/MainActivity.kt"
+          - "app/src/main/java/app/portland/data/Captions.kt"
+          - "app/src/main/java/app/portland/data/Colors.kt"
+          - "app/src/main/java/app/portland/data/Library.kt"
+          - "app/src/main/java/app/portland/data/Links.kt"
+          - "app/src/main/java/app/portland/data/Store.kt"
+          - "app/src/main/java/app/portland/data/Updater.kt"
+
+"area/sync-r2":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "app/src/main/java/app/portland/data/R2.kt"
+          - "app/src/main/java/app/portland/data/Sync.kt"
+
+"area/media":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "app/src/main/java/app/portland/data/Video.kt"
+          - "app/src/main/java/app/portland/ui/Detail.kt"
+          - "app/src/main/java/app/portland/ui/Seek.kt"
+
+"area/tests":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "app/src/test/**"
+          - "app/src/androidTest/**"
+
+"area/build":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "gradle/**"
+          - "*.gradle.kts"
+          - "app/*.gradle.kts"
+          - "gradle.properties"
+          - "app/proguard-rules.pro"
+
+"area/ci-cd":
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/workflows/**"
+          - ".github/actions/**"
+          - ".github/dependabot.yml"
+          - ".github/labeler.yml"
+          - ".github/release.yml"
+
+"area/security":
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/workflows/codeql.yml"
+          - ".github/workflows/security.yml"
+          - ".github/SECURITY.md"
+          - ".gitleaks.toml"
+
+"area/docs":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**.md"
+          - "docs/**"
+
+"type/feature":
+  - head-branch:
+      - "^feat(ure)?/.+"
+      - "^redesign/.+"
+
+"type/bug":
+  - head-branch:
+      - "^(fix|bug(fix)?|hotfix)/.+"
+
+"type/perf":
+  - head-branch:
+      - "^perf/.+"
+
+"type/ci":
+  - head-branch:
+      - "^ci/.+"
+
+"type/security":
+  - head-branch:
+      - "^(sec|security)/.+"
+
+"type/refactor":
+  - head-branch:
+      - "^refactor/.+"
+
+"type/docs":
+  - head-branch:
+      - "^docs?/.+"
+
+"type/deps":
+  - head-branch:
+      - "^(dependabot|deps)/.+"

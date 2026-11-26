@@ -18,6 +18,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -37,8 +38,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.preferredFrameRate
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.portland.store
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
@@ -83,6 +87,16 @@ class Nav(private val saved: SaveableStateHolder) {
             saved.removeState(stack.removeAt(stack.lastIndex).key)
         }
     }
+
+    fun openDetail(ids: List<String>, start: Int) {
+        val target = Screen.Detail(ids, start)
+        if (stack.last() == target) return
+        while (stack.size > 1 && stack.last() !is Screen.Home) {
+            saved.removeState(stack.removeAt(stack.lastIndex).key)
+        }
+        forward = true
+        stack += target
+    }
 }
 
 val LocalNav = staticCompositionLocalOf<Nav> { error("Nav not provided") }
@@ -120,12 +134,21 @@ fun Modifier.sharedPin(state: SharedTransitionScope.SharedContentState?): Modifi
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-fun AppRoot() {
+fun AppRoot(openPinId: String? = null, onPinOpened: () -> Unit = {}) {
     val p = LocalPalette.current
+    val store = LocalContext.current.store
+    val lib by store.library.collectAsStateWithLifecycle()
     val saved = rememberSaveableStateHolder()
     val nav = remember { Nav(saved) }
     val scope = rememberCoroutineScope()
     val back = remember { BackPreview() }
+
+    LaunchedEffect(openPinId, lib.pins) {
+        val targetId = openPinId ?: return@LaunchedEffect
+        val index = lib.pins.indexOfFirst { it.id == targetId }
+        if (index >= 0) nav.openDetail(lib.pins.map { it.id }, index)
+        onPinOpened()
+    }
     // Predictive back: the screen shrinks and follows the finger; letting go goes back, pulling away springs it home.
     // Without a gesture (3-button nav) the flow just completes, which is a plain back.
     PredictiveBackHandler(nav.stack.size > 1) { events ->

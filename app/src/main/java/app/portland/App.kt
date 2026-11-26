@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import app.portland.data.Captions
 import app.portland.data.R2
+import app.portland.data.Reminders
 import app.portland.data.Store
 import app.portland.data.Sync
 import coil3.ImageLoader
@@ -33,6 +34,7 @@ class App : Application(), SingletonImageLoader.Factory {
             delay(STARTUP_GRACE_MS)
             Sync.schedule(this@App) // pulls anything added from another install
             Captions.schedule(this@App) // finishes descriptions interrupted by a process death
+            Reminders.ensureScheduled(this@App) // arms the randomized daytime reminder chain
             indexColors() // colour-tags pins saved before colour search existed
         }
     }

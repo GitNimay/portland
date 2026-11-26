@@ -1,7 +1,11 @@
 package app.portland.ui
 
+import android.Manifest
+import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
@@ -35,6 +39,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.util.lerp
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.text.BasicTextField
@@ -79,6 +84,8 @@ import app.portland.R
 import app.portland.data.Library
 import app.portland.data.R2
 import app.portland.data.Release
+import app.portland.data.ReminderPolicy
+import app.portland.data.Reminders
 import app.portland.data.Updater
 import app.portland.data.search
 import app.portland.store
@@ -96,6 +103,25 @@ fun HomeScreen() {
     val importing by store.importing.collectAsStateWithLifecycle()
     val update by Updater.ready.collectAsStateWithLifecycle()
     val activity = LocalActivity.current
+    val context = LocalContext.current
+    val reminderSnap by Reminders.state(context).collectAsStateWithLifecycle()
+    var settingsOpen by remember { mutableStateOf(false) }
+    var hasNotificationPermission by remember { mutableStateOf(Reminders.hasNotificationPermission(context)) }
+    val requestNotificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        hasNotificationPermission = granted
+        Reminders.onPermissionResult(context, granted)
+    }
+    LaunchedEffect(lib.pins.size, reminderSnap.enabled, reminderSnap.promptDismissed) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            lib.pins.size >= ReminderPolicy.MIN_PINS &&
+            reminderSnap.enabled &&
+            !hasNotificationPermission &&
+            !reminderSnap.promptDismissed
+        ) {
+            delay(1200)
+            requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
     var tab by rememberSaveable { mutableIntStateOf(0) } // 0 = pins, 1 = boards: the section chosen, outside search
     var query by rememberSaveable { mutableStateOf<String?>(null) } // null = search closed
     val searching = query != null
@@ -239,6 +265,10 @@ fun HomeScreen() {
             matches = if (query.isNullOrBlank()) null else pins.size,
             update = update,
             onUpdate = { activity?.let { a -> store.launch { Updater.install(a) } } },
+            onSettings = {
+                hasNotificationPermission = Reminders.hasNotificationPermission(context)
+                settingsOpen = true
+            },
             query = query,
             onQuery = { query = it },
             tab = { if (searching) 0 else pager.targetPage },
@@ -262,6 +292,13 @@ fun HomeScreen() {
         AddMenu(backdrop, boardId = null, visible = !selection.active)
         SelectionBar(selection)
     }
+
+    if (settingsOpen) {
+        SettingsSheet(onDismiss = {
+            settingsOpen = false
+            hasNotificationPermission = Reminders.hasNotificationPermission(context)
+        })
+    }
 }
 
 @Composable
@@ -271,6 +308,7 @@ private fun Header(
     matches: Int?,
     update: Release?,
     onUpdate: () -> Unit,
+    onSettings: () -> Unit,
     query: String?,
     onQuery: (String?) -> Unit,
     tab: () -> Int,
@@ -306,6 +344,17 @@ private fun Header(
                 if (!searching) {
                     // No collapsed title: the Pins/Boards control docks on this side once scrolled.
                     Spacer(Modifier.weight(1f))
+                    val settingsAlpha = (1f - progress() * 1.6f).coerceIn(0f, 1f)
+                    if (settingsAlpha > 0.02f) {
+                        IconBtn(
+                            R.drawable.ic_settings,
+                            "Settings",
+                            modifier = Modifier.graphicsLayer { alpha = settingsAlpha },
+                            backdrop = backdrop,
+                            onClick = onSettings,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                    }
                     IconBtn(R.drawable.ic_search, "Search", backdrop = backdrop) { onQuery("") }
                 } else {
                     val focus = remember { FocusRequester() }

@@ -1,25 +1,44 @@
-<img src="docs/logo.png" width="96" alt="Portland logo">
+<p align="left">
+  <img src="docs/logo.png" width="80" alt="Portland logo">
+</p>
 
 # Portland
 
-A private, single-user inspiration safe for Android. Save images and videos, sort them into boards, and find them again by note or AI description. No accounts, no login.
+A self-hosted, native Android Pinterest alternative built in Kotlin. Save images and videos, organize them into boards, and find anything by note, colour, or AI description — no accounts, no tracking.
+
+Inspired by Apple's **Liquid Glass** aesthetic, Portland is designed to feel ultra-lightweight with fluid, zero-jank gestures and smooth animations across scrolling, search, the `+` action panel, and the gallery viewer.
+
+<p align="center">
+  <img src="docs/screenshots/feed.webp" width="23%" alt="Pins masonry feed">
+  <img src="docs/screenshots/boards.webp" width="23%" alt="Boards view">
+  <img src="docs/screenshots/viewer.webp" width="23%" alt="Gallery viewer">
+  <img src="docs/screenshots/search.webp" width="23%" alt="Colour and AI search">
+</p>
+<p align="center">
+  <em>Masonry Feed &nbsp;&bull;&nbsp; Boards &nbsp;&bull;&nbsp; Gallery Viewer &nbsp;&bull;&nbsp; Colour &amp; AI Search</em>
+</p>
+
+## Smooth Gestures & Motion
+
+<p align="center">
+  <img src="docs/screenshots/demo.webp" width="260" alt="Portland gestures and animations demo">
+</p>
+<p align="center">
+  <em>Feed scrolling &nbsp;&bull;&nbsp; Morphing + panel &nbsp;&bull;&nbsp; Instant search &nbsp;&bull;&nbsp; Gallery swipe &amp; pull-to-dismiss</em>
+</p>
 
 ## Features
 
-- Masonry feed of everything you've saved, newest first
-- Tap + and the glass button morphs into a panel: pick from the photo library, or paste a link
-- Links (pasted, or shared to Portland as text) download in the background, even with the app closed: videos from YouTube, X, Instagram, TikTok and the many other sites yt-dlp supports (up to 1080p, H.264, with the site's own cover as the preview), direct image/video URLs, and pages that advertise an image (og:image). Sites that demand a login or a bot check say so in a toast instead of saving a thumbnail
-- Boards, notes, search (notes, AI descriptions, board names, and colours: "blue", "red pink" or "grey")
-- Swipe the feed left and right between Pins and Boards (back on Boards returns to Pins)
-- Viewer: gallery-style, with the media centred between a slim top bar (when it was saved) and a filmstrip of the other pins (tap a frame, or drag the strip to scrub) over a glass action bar (share · board, note, delete · details). Swipe between pins, pinch-zoom images, looping video with a draggable timeline and double-tap to skip 10s back or forward
-- In the viewer, pull a pin down to fly it back into the grid; push it up for the send shelf (send with the system share sheet, save to the gallery, copy the image). Both also work in the full-screen zoom
-- Long-press to select several pins, then add them to a board or delete them in one go
-- Every pin is backed up to Cloudflare R2; a fresh install restores the whole library
-- Each new pin is described by Workers AI in the background (~1–2s) and the description fades into the feed
+- **Masonry Feed & Boards** — Swipe between Pins and Boards, or long-press to batch-select, organize, and delete.
+- **Save from Anywhere** — Pick from your gallery, paste a link, or share directly to Portland. Background workers download images and videos (up to 1080p) using on-device `yt-dlp`.
+- **Smart Search** — Search instantly by notes, board names, 12 colour buckets (e.g. `"blue"`), or background AI descriptions.
+- **Gallery Viewer** — Scrub through pins on a filmstrip, pinch-to-zoom, double-tap to seek videos, pull down to fly back to the grid, or pull up to share and export.
+- **Self-Hosted Sync** — Backs up your library to your own Cloudflare R2 bucket and restores everything on a fresh install. Works fully offline without credentials.
+- **Auto-Updates** — Checks for new signed releases in the background and prompts to restart when an update is ready.
 
 ## Setup
 
-Credentials live in `local.properties` (git-ignored). Without them the app runs fully offline.
+Add your Cloudflare credentials to `local.properties` (git-ignored). Without them, Portland runs offline in local-only mode.
 
 ```properties
 r2.accountId=<cloudflare account id>
@@ -29,32 +48,18 @@ r2.secretKey=<R2 secret access key>
 ai.token=<API token with Workers AI read/write>
 ```
 
-One user API token scoped to *Workers AI Read/Write* plus *R2 Bucket Item Read/Write on the `portland` bucket* covers both: the access key is the token id and the secret key is the SHA-256 of the token value.
+> **Tip:** One Cloudflare API token with *Workers AI Read/Write* and *R2 Bucket Item Read/Write* (`portland`) covers both — `r2.accessKey` is the token ID and `r2.secretKey` is the SHA-256 hash of the token value.
 
 ## Build
 
 ```sh
-./gradlew :app:testDebugUnitTest   # JVM tests: SigV4, sync merge, captions
-./gradlew :app:assembleRelease     # R8-shrunk APK for phones (arm64), signed with the release key
-./gradlew :app:assembleRelease -Pabis=x86_64   # the same for an x86_64 emulator
+./gradlew :app:testDebugUnitTest                 # Run unit tests
+./gradlew :app:assembleRelease                   # Build signed release APK (arm64-v8a)
+./gradlew :app:assembleRelease -Pabis=x86_64     # Build release APK for x86_64 emulators
 ```
 
-## Releases and updates
+## Tech Stack
 
-Push to `main` and GitHub Actions (`.github/workflows/android.yml`) tests, builds and signs the release. It then uploads the APK and `releases/latest.json` to R2 and creates a GitHub Release.
-
-The installed app checks `latest.json` every time it opens and every 15 minutes while it stays open. It downloads a newer build in the background and checks its SHA-256, then shows "Version … is ready · Restart" in the header. Tapping it installs the update and reopens Portland. Android 12+ needs no installer prompt for a self-update once Portland may "Install unknown apps" (asked once), but Google Play Protect still asks to scan each new build of a sideloaded app from an unverified developer.
-
-The signing key (`release.jks`, git-ignored) and its password must never be lost or changed: Android only accepts updates signed with the same key. Keep a copy somewhere safe. CI has it as the `RELEASE_KEYSTORE` secret.
-
-## How it works
-
-- `data/Store.kt`: the whole library is one in-memory `StateFlow`, persisted atomically as `library.json`; media and 560px WebP thumbnails sit in app-private storage.
-- `data/Sync.kt`: a WorkManager job uploads pending media, purges deleted objects, then merges `index.json` with R2 (last write wins, deletions win). It then lists the bucket and deletes any media or thumbnail no pin uses: deleted pins at once, unknown objects after 24 hours (another install may be mid-upload). It never sweeps unless the remote index was read, so R2 holds exactly the live library.
-- `data/Colors.kt`: colour search without AI. Each thumbnail is bucketed pixel by pixel (HSV) into 12 named colours; names covering enough of the image (5% for colours, 20% for black/white/gray) are stored on the pin and synced in the index.
-- `data/Links.kt`: a WorkManager job per link, so downloads survive the app closing and retry on network errors.
-- `data/Video.kt`: on-device yt-dlp (youtubedl-android, with its own Python and ffmpeg; about 50 MB of the APK). It updates yt-dlp itself once a day, since sites change faster than app releases.
-- `data/R2.kt`: a hand-written SigV4 OkHttp interceptor, so Coil and ExoPlayer stream straight from the private bucket.
-- `data/Captions.kt`: sends the thumbnail to `@cf/mistralai/mistral-small-3.1-24b-instruct`, four at a time. It was the fastest and most concrete of the vision models benchmarked.
-- `ui/Gestures.kt`: the viewer's swipes. One pointer handler claims a drag only once it is clearly vertical (so the pager and taps keep working), and every frame is read at draw/placement time, so a drag never recomposes. The pulled pin moves by placement (not a layer) so the shared-element transition flies it home from where it was let go, with the finger's velocity.
-- UI: Jetpack Compose, Inter (variable, with its text and display optical sizes) in seven Apple-style type roles, Phosphor icons, a monochrome alpha-ink palette, clear and frosted Liquid Glass, light and dark. Licences for the font and icons ship in `assets/licenses`.
+- **Kotlin & Jetpack Compose** — Native Android UI with Inter typography, Phosphor icons, Liquid Glass surfaces, and zero-recomposition gesture handling (`ui/Gestures.kt`).
+- **Offline-First Storage** — Atomic `library.json` state (`data/Store.kt`) with WorkManager-backed R2 sync (`data/Sync.kt`, `data/R2.kt`).
+- **Media & AI** — On-device `yt-dlp` + `ffmpeg` (`data/Video.kt`), HSV colour indexing (`data/Colors.kt`), and Workers AI vision captions (`data/Captions.kt`).

@@ -75,9 +75,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.portland.R
 import app.portland.data.Captions
 import app.portland.data.Pin
+import app.portland.data.Prefs
 import app.portland.data.sharedBoard
 import app.portland.store
 import coil3.compose.AsyncImage
@@ -215,6 +217,7 @@ private val SkeletonRatios = floatArrayOf(0.8f, 1.25f, 1f, 0.7f)
  * Masonry of pins. [header] scrolls with the content as a full-width row.
  * [onOpen] receives the index into [pins]. With a [selection], long-press picks pins for bulk actions.
  * [loading] adds that many skeleton cards on top for pins that are still on their way in.
+ * Pinching the grid changes its column count, the same for every pin grid and kept across launches.
  */
 @Composable
 fun PinGrid(
@@ -228,10 +231,18 @@ fun PinGrid(
     header: @Composable () -> Unit = {},
 ) {
     val haptics = LocalHaptics.current
+    val context = LocalContext.current
+    val prefs by remember(context) { Prefs.state(context) }.collectAsStateWithLifecycle()
+    val columns by rememberUpdatedState(prefs.gridColumns)
+    // The pinch detector outlives recompositions, so it reads the latest haptics (they change with the setting).
+    val setColumns by rememberUpdatedState<(Int) -> Unit> {
+        haptics.play(Fx.Detent)
+        Prefs.setGridColumns(context, it)
+    }
     LazyVerticalStaggeredGrid(
-        columns = StaggeredGridCells.Fixed(2),
+        columns = StaggeredGridCells.Fixed(columns),
         state = state,
-        modifier = modifier,
+        modifier = modifier.pinchColumns(columns = { columns }, onColumns = { setColumns(it) }),
         contentPadding = PaddingValues(start = GridGutter, end = GridGutter, bottom = bottomPadding),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalItemSpacing = 16.dp,

@@ -24,6 +24,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.geometry.lerp
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
@@ -37,6 +38,7 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.round
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
+import app.portland.data.GridColumns
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -513,6 +515,54 @@ fun Modifier.peekZoom(zoom: PeekZoom, enabled: () -> Boolean = { true }): Modifi
             }
         }
     }
+}
+
+/**
+ * Pinching a pin grid changes how many columns it shows, one column per [ColumnStep] of spread: fingers apart
+ * for fewer, bigger pins, together for more. One-finger touches pass through untouched (scrolling, taps,
+ * long-press to select). The pinch is read before the grid sees it, and once it passes touch slop its moves are
+ * consumed until every finger lifts, so the grid does not scroll under it. [columns] is read when a step is due;
+ * [onColumns] gets each new count.
+ */
+fun Modifier.pinchColumns(columns: () -> Int, onColumns: (Int) -> Unit): Modifier = pointerInput(Unit) {
+    awaitEachGesture {
+        awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        var pinching = false
+        var total = 1f
+        do {
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+            if (event.changes.count { it.pressed } >= 2) {
+                total *= event.calculateZoom()
+                if (!pinching) {
+                    val span = event.calculateCentroidSize(useCurrent = true)
+                    if (abs(1f - total) * span > viewConfiguration.touchSlop) pinching = true
+                }
+                if (pinching) {
+                    val current = columns()
+                    val next = columnsAfterPinch(current, total)
+                    if (next != current) {
+                        onColumns(next)
+                        total = 1f // the next column needs a fresh step of spread
+                    } else {
+                        // At the fewest or most columns, pinching further piles up nothing, so turning back answers at once.
+                        total = total.coerceIn(1f / ColumnStep, ColumnStep)
+                    }
+                }
+            }
+            if (pinching) event.changes.forEach { if (it.positionChanged()) it.consume() }
+        } while (event.changes.any { it.pressed })
+    }
+}
+
+/** How far a pinch spreads (or, inverted, squeezes) before the grid gains or loses a column. */
+internal const val ColumnStep = 1.3f
+
+/** The column count after a pinch that has scaled by [zoom] since the last step: spreading shows fewer, bigger pins. */
+internal fun columnsAfterPinch(columns: Int, zoom: Float): Int = when {
+    !zoom.isFinite() || zoom <= 0f -> columns
+    zoom >= ColumnStep -> GridColumns.clamp(columns - 1)
+    zoom <= 1f / ColumnStep -> GridColumns.clamp(columns + 1)
+    else -> columns
 }
 
 /** [Offset.round] throws on NaN/Infinity; a bad frame of spring or velocity math must not crash the app. */

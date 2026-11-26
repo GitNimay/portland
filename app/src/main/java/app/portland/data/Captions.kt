@@ -48,6 +48,8 @@ object Captions {
         WorkManager.getInstance(context).enqueueUniqueWork("caption", ExistingWorkPolicy.APPEND_OR_REPLACE, work)
     }
 
+    private val http by lazy { R2.http.newBuilder().callTimeout(20, TimeUnit.SECONDS).build() }
+
     /** Returns the caption ("" when the model gave nothing usable). Throws IOException when worth retrying. */
     suspend fun describe(webp: ByteArray): String = withContext(Dispatchers.IO) {
         val image = "data:image/webp;base64," + Base64.encodeToString(webp, Base64.NO_WRAP)
@@ -62,8 +64,8 @@ object Captions {
             .header("Authorization", "Bearer ${BuildConfig.AI_TOKEN}")
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
-        // Shares R2's client for its connection pool; the signing interceptor ignores non-R2 hosts.
-        R2.http.newCall(request).execute().use { r ->
+        // Shares R2's connection pool with a bounded call timeout; the signing interceptor ignores non-R2 hosts.
+        http.newCall(request).execute().use { r ->
             when {
                 r.isSuccessful -> parseCaption(r.body.string())
                 r.code in PERMANENT -> "" // this image will never work; don't retry it forever
@@ -75,12 +77,14 @@ object Captions {
     private val PERMANENT = setOf(400, 413, 415, 422)
 }
 
+private val WS_REGEX = Regex("\\s+")
+
 /** Pulls `result.response` out of a Workers AI reply and tidies it into a short caption. */
 internal fun parseCaption(json: String): String =
     cleanCaption(JSONObject(json).optJSONObject("result")?.optString("response").orEmpty())
 
 internal fun cleanCaption(s: String): String =
-    s.replace(Regex("\\s+"), " ").trim().trim('"', '“', '”', '\'').trimEnd('.', ' ').take(140).trimEnd()
+    s.replace(WS_REGEX, " ").trim().trim('"', '“', '”', '\'').trimEnd('.', ' ').take(140).trimEnd()
 
 class CaptionWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {

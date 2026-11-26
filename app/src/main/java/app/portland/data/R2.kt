@@ -6,7 +6,6 @@ import kotlinx.coroutines.withContext
 import okhttp3.Dispatcher
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -106,11 +105,30 @@ object R2 {
         send(request, "PUT", key)
     }
 
-    suspend fun get(key: String): ByteArray? = withContext(Dispatchers.IO) {
+    /** Conditional PUT: succeeds if the object matches [etag] (or is absent when [etag] is null). Returns false on 412. */
+    suspend fun putBytesIfMatch(key: String, bytes: ByteArray, contentType: String, etag: String?): Boolean = withContext(Dispatchers.IO) {
+        val builder = Request.Builder()
+            .url(url(key))
+            .header("x-amz-content-sha256", sha256Hex(bytes))
+            .apply { if (etag != null) header("If-Match", etag) else header("If-None-Match", "*") }
+            .put(bytes.toRequestBody(contentType.toMediaTypeOrNull()))
+        http.newCall(builder.build()).execute().use { response ->
+            when {
+                response.code == 412 -> false
+                response.isSuccessful -> true
+                else -> throw IOException("PUT $key -> ${response.code}")
+            }
+        }
+    }
+
+    suspend fun get(key: String): ByteArray? = getWithEtag(key)?.first
+
+    /** Fetches [key] and its ETag header (or null when 404). */
+    suspend fun getWithEtag(key: String): Pair<ByteArray, String?>? = withContext(Dispatchers.IO) {
         http.newCall(Request.Builder().url(url(key)).build()).execute().use { response ->
             when {
                 response.code == 404 -> null
-                response.isSuccessful -> response.body.bytes()
+                response.isSuccessful -> response.body.bytes() to response.header("ETag")
                 else -> throw IOException("GET $key -> ${response.code}")
             }
         }
@@ -151,15 +169,22 @@ object R2 {
     }
 }
 
+private val CONTENTS_REGEX = Regex("<Contents>(.*?)</Contents>", RegexOption.DOT_MATCHES_ALL)
+private val KEY_REGEX = Regex("<Key>([^<]*)</Key>")
+private val LAST_MODIFIED_REGEX = Regex("<LastModified>([^<]*)</LastModified>")
+private val TRUNCATED_REGEX = Regex("<IsTruncated>([^<]*)</IsTruncated>")
+private val NEXT_TOKEN_REGEX = Regex("<NextContinuationToken>([^<]*)</NextContinuationToken>")
+private val WS_REGEX = Regex("\\s+")
+
 /** One ListObjectsV2 page: (key, lastModified ms) pairs, and the continuation token when there are more. */
 internal fun parseList(xml: String): Pair<List<Pair<String, Long>>, String?> {
-    fun tag(s: String, name: String) = Regex("<$name>([^<]*)</$name>").find(s)?.groupValues?.get(1)
-    val items = Regex("<Contents>(.*?)</Contents>", RegexOption.DOT_MATCHES_ALL).findAll(xml).mapNotNull { m ->
-        val key = tag(m.groupValues[1], "Key")?.xmlUnescape() ?: return@mapNotNull null
-        key to (tag(m.groupValues[1], "LastModified")?.let { Instant.parse(it).toEpochMilli() } ?: 0L)
+    val items = CONTENTS_REGEX.findAll(xml).mapNotNull { m ->
+        val body = m.groupValues[1]
+        val key = KEY_REGEX.find(body)?.groupValues?.get(1)?.xmlUnescape() ?: return@mapNotNull null
+        key to (LAST_MODIFIED_REGEX.find(body)?.groupValues?.get(1)?.let { Instant.parse(it).toEpochMilli() } ?: 0L)
     }.toList()
-    val more = tag(xml, "IsTruncated") == "true"
-    return items to if (more) tag(xml, "NextContinuationToken")?.xmlUnescape() else null
+    val more = TRUNCATED_REGEX.find(xml)?.groupValues?.get(1) == "true"
+    return items to if (more) NEXT_TOKEN_REGEX.find(xml)?.groupValues?.get(1)?.xmlUnescape() else null
 }
 
 private fun String.xmlUnescape() =
@@ -184,7 +209,7 @@ internal fun sign(
     val signedNames = headers.keys.map { it.lowercase(Locale.US) }.sorted()
     val canonicalHeaders = signedNames.joinToString("") { name ->
         val value = headers.entries.first { it.key.equals(name, ignoreCase = true) }.value
-        "$name:${value.trim().replace(Regex("\\s+"), " ")}\n"
+        "$name:${value.trim().replace(WS_REGEX, " ")}\n"
     }
     val signedHeaders = signedNames.joinToString(";")
     val canonicalQuery = query.entries.sortedBy { it.key }
@@ -219,7 +244,7 @@ private fun enc(s: String): String = buildString {
 internal fun sha256Hex(bytes: ByteArray): String =
     MessageDigest.getInstance("SHA-256").digest(bytes).toHex()
 
-private fun sha256Hex(file: File): String {
+internal fun sha256Hex(file: File): String {
     val digest = MessageDigest.getInstance("SHA-256")
     file.inputStream().use { input ->
         val buffer = ByteArray(64 * 1024)

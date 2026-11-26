@@ -23,7 +23,6 @@ import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
-import java.security.MessageDigest
 
 /** A build CI published to R2 (releases/latest.json). */
 data class Release(val versionCode: Int, val versionName: String, val apk: String, val sha256: String) {
@@ -43,6 +42,7 @@ object Updater {
     // Debug builds are signed with a different key, so a CI build could never replace them.
     private val enabled = !BuildConfig.DEBUG && R2.enabled
     private val lock = Mutex()
+    private val installLock = Mutex()
     private val _ready = MutableStateFlow<Release?>(null)
 
     /** A newer build that is downloaded, verified and waiting to install. */
@@ -61,7 +61,7 @@ object Updater {
                 if (release.versionCode <= BuildConfig.VERSION_CODE || _ready.value == release) return
                 val apk = apkFile(context)
                 withContext(Dispatchers.IO) {
-                    if (!(apk.exists() && sha256(apk) == release.sha256)) download(release, apk)
+                    if (!(apk.exists() && sha256Hex(apk) == release.sha256)) download(release, apk)
                 }
                 _ready.value = release
             } catch (e: CancellationException) {
@@ -75,38 +75,48 @@ object Updater {
     /** Installs the ready build, first asking once for "Install unknown apps" if needed. Pass an Activity. */
     suspend fun install(activity: Activity) {
         val release = _ready.value ?: return
-        val pm = activity.packageManager
-        if (!pm.canRequestPackageInstalls()) {
-            awaitingPermission = true
-            // Started from the Activity, so Back returns to Portland rather than the Settings app.
-            activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}")))
-            return
-        }
-        val context = activity.applicationContext
-        withContext(Dispatchers.IO) {
-            relaunchMarker(context).createNewFile()
-            val apk = apkFile(context)
-            if (sha256(apk) != release.sha256) throw IOException("update apk changed on disk")
-            val installer = pm.packageInstaller
-            val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
-                setAppPackageName(context.packageName)
-                setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
+        if (!installLock.tryLock()) return
+        try {
+            val pm = activity.packageManager
+            if (!pm.canRequestPackageInstalls()) {
+                awaitingPermission = true
+                // Started from the Activity, so Back returns to Portland rather than the Settings app.
+                activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}")))
+                return
             }
-            val id = installer.createSession(params)
-            installer.openSession(id).use { session ->
-                apk.inputStream().use { input ->
-                    session.openWrite("portland.apk", 0, apk.length()).use { out ->
-                        input.copyTo(out)
-                        session.fsync(out)
+            val context = activity.applicationContext
+            withContext(Dispatchers.IO) {
+                val apk = apkFile(context)
+                if (sha256Hex(apk) != release.sha256) throw IOException("update apk changed on disk")
+                val installer = pm.packageInstaller
+                val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
+                    setAppPackageName(context.packageName)
+                    setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
+                }
+                val id = installer.createSession(params)
+                installer.openSession(id).use { session ->
+                    apk.inputStream().use { input ->
+                        session.openWrite("portland.apk", 0, apk.length()).use { out ->
+                            input.copyTo(out)
+                            session.fsync(out)
+                        }
+                    }
+                    val status = PendingIntent.getBroadcast(
+                        context, id,
+                        Intent(context, InstallStatusReceiver::class.java),
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE, // the installer fills in the status extras
+                    )
+                    relaunchMarker(context).createNewFile()
+                    try {
+                        session.commit(status.intentSender)
+                    } catch (e: Throwable) {
+                        relaunchMarker(context).delete()
+                        throw e
                     }
                 }
-                val status = PendingIntent.getBroadcast(
-                    context, id,
-                    Intent(context, InstallStatusReceiver::class.java),
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE, // the installer fills in the status extras
-                )
-                session.commit(status.intentSender)
             }
+        } finally {
+            installLock.unlock()
         }
     }
 
@@ -117,26 +127,13 @@ object Updater {
         val tmp = File(into.path + ".part")
         R2.http.newCall(Request.Builder().url(R2.url(release.apk)).build()).execute().use { r ->
             if (!r.isSuccessful) throw IOException("download ${r.code}")
-            r.body.byteStream().use { input -> tmp.outputStream().use { input.copyTo(it) } }
+            r.body.byteStream().use { input -> tmp.outputStream().buffered().use { input.copyTo(it) } }
         }
-        if (sha256(tmp) != release.sha256) {
+        if (sha256Hex(tmp) != release.sha256) {
             tmp.delete()
             throw IOException("checksum mismatch for ${release.versionName}")
         }
         if (!tmp.renameTo(into)) throw IOException("could not move update into place")
-    }
-
-    private fun sha256(file: File): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { input ->
-            val buf = ByteArray(64 * 1024)
-            while (true) {
-                val n = input.read(buf)
-                if (n <= 0) break
-                digest.update(buf, 0, n)
-            }
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 }
 
@@ -149,7 +146,10 @@ class InstallStatusReceiver : BroadcastReceiver() {
                 if (confirm != null && Updater.foreground) runCatching { context.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
             }
             PackageInstaller.STATUS_SUCCESS -> Unit // this process is replaced by the new version
-            else -> Log.w("Updater", "install failed ($status): ${intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)}")
+            else -> {
+                Updater.relaunchMarker(context).delete()
+                Log.w("Updater", "install failed ($status): ${intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)}")
+            }
         }
     }
 }

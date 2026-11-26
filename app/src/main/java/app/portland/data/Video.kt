@@ -22,7 +22,8 @@ import java.io.File
  */
 object Video {
     private val setup = Mutex()
-    private var ready = false
+    private val updateLock = Mutex()
+    @Volatile private var ready = false
     private const val UPDATE_EVERY_MS = 24 * 60 * 60 * 1000L
     // Up to 1080p, H.264 + AAC first: every phone decodes it in hardware (YouTube otherwise picks AV1 or VP9).
     private const val SORT = "res:1080,vcodec:h264,acodec:aac,ext:mp4:m4a"
@@ -74,7 +75,8 @@ object Video {
             addOption("--no-mtime")
             addOption("-o", File(dir, "%(id).80s.%(ext)s").path)
         }
-        val id = dir.name
+        // Use the per-link UUID directory name when nested under links/<uuid>/video so concurrent downloads never collide.
+        val id = dir.parentFile?.name ?: dir.name
         val error = coroutineScope {
             // execute() blocks until yt-dlp exits; await() keeps this cancellable, and a cancel kills the process.
             val job = async(Dispatchers.IO) {
@@ -103,25 +105,39 @@ object Video {
         return Downloaded(file, mime, cover) to ""
     }
 
-    /** Unpacks Python and ffmpeg on first use, and updates yt-dlp at most once a day. */
-    private suspend fun prepare(context: Context) = setup.withLock {
-        withContext(Dispatchers.IO) {
-            val app = context.applicationContext
-            if (!ready) {
-                YoutubeDL.getInstance().init(app)
-                FFmpeg.getInstance().init(app)
-                ready = true
+    /** Unpacks Python and ffmpeg on first use, and updates yt-dlp at most once a day without blocking parallel downloads. */
+    private suspend fun prepare(context: Context) {
+        val app = context.applicationContext
+        if (!ready) {
+            setup.withLock {
+                if (!ready) {
+                    withContext(Dispatchers.IO) {
+                        YoutubeDL.getInstance().init(app)
+                        FFmpeg.getInstance().init(app)
+                    }
+                    ready = true
+                }
             }
-            val stamp = File(app.noBackupFilesDir, "ytdlp-updated")
-            if (System.currentTimeMillis() - stamp.lastModified() > UPDATE_EVERY_MS) {
-                // A failed update keeps the copy we have; the next link tries again.
-                runCatching { YoutubeDL.getInstance().updateYoutubeDL(app, YoutubeDL.UpdateChannel.STABLE) }
-                    .onSuccess { stamp.writeText(it?.name.orEmpty()) }
-                    .onFailure { Log.w("Video", "yt-dlp update failed", it) }
+        }
+        val stamp = File(app.noBackupFilesDir, "ytdlp-updated")
+        if (System.currentTimeMillis() - stamp.lastModified() > UPDATE_EVERY_MS && updateLock.tryLock()) {
+            try {
+                if (System.currentTimeMillis() - stamp.lastModified() > UPDATE_EVERY_MS) {
+                    withContext(Dispatchers.IO) {
+                        // A failed update keeps the copy we have; the next link tries again.
+                        runCatching { YoutubeDL.getInstance().updateYoutubeDL(app, YoutubeDL.UpdateChannel.STABLE) }
+                            .onSuccess { stamp.writeText(it?.name.orEmpty()) }
+                            .onFailure { Log.w("Video", "yt-dlp update failed", it) }
+                    }
+                }
+            } finally {
+                updateLock.unlock()
             }
         }
     }
 }
+
+private val SITE_REGEX = Regex("""\[([a-z0-9]+)(?::[^\]]*)?]""")
 
 /**
  * What to tell the person when yt-dlp failed with [error] (its last ERROR line), or null when the page simply has
@@ -130,7 +146,7 @@ object Video {
 internal fun videoError(error: String): String? {
     val e = error.lowercase()
     if ("unsupported url" in e || "[generic]" in e || "no video" in e || "there's no video" in e) return null
-    val site = Regex("""\[([a-z0-9]+)(?::[^\]]*)?]""").find(e)?.groupValues?.get(1)
+    val site = SITE_REGEX.find(e)?.groupValues?.get(1)
         ?.let { SITES[it] ?: it.replaceFirstChar(Char::uppercase) } ?: "That site"
     return when {
         "not a bot" in e -> "$site blocked the download for now. Try again later."

@@ -27,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.FrameRateCategory
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -42,6 +43,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.preferredFrameRate
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
@@ -186,6 +188,7 @@ private fun Intro(clock: () -> Float, onSkip: () -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
+            .preferredFrameRate(FrameRateCategory.High)
             .drawBehind { drawRect(canvas, alpha = 1f - EaseInOut.transform(seg(clock(), HANDOFF_AT, HANDOFF * 0.8f))) }
             .pointerInput(Unit) { detectTapGestures { onSkip() } },
         contentAlignment = Alignment.Center,

@@ -154,21 +154,28 @@ fun HomeScreen() {
         lerp((pinsState.headerScroll() / edgeSpan).coerceIn(0f, 1f), (boardsState.headerScroll() / edgeSpan).coerceIn(0f, 1f), pagePos())
     }
 
-    // Collapse tied 1:1 to the finger (scrolling or swiping), but gliding when the title block changes (search).
-    val shift = remember { Animatable(0f) }
-    LaunchedEffect(collapse, searching) {
-        var first = true
-        snapshotFlow { headerScroll() }.collect { target ->
-            if (first) {
-                first = false
-                shift.animateTo(target, Motion.smooth())
-            } else {
-                shift.snapTo(target)
-            }
+    // Synchronous scroll-linked shift (0-frame lag at 60/90/120 Hz), plus a smooth glide only when toggling search.
+    val searchGlide = remember { Animatable(0f) }
+    val lastShift = remember { FloatArray(1) }
+    var searchInit by remember { mutableStateOf(false) }
+    LaunchedEffect(searching) {
+        if (!searchInit) {
+            searchInit = true
+            return@LaunchedEffect
+        }
+        val delta = lastShift[0] - headerScroll()
+        if (delta != 0f) {
+            searchGlide.snapTo(delta)
+            searchGlide.animateTo(0f, Motion.smooth())
         }
     }
+    val shift = {
+        val v = (headerScroll() + searchGlide.value).coerceIn(0f, collapse.toFloat())
+        lastShift[0] = v
+        v
+    }
     // 0 expanded .. 1 once the large title has scrolled away (the tabs may still be docking).
-    val progress = { if (largeHeight == 0) 0f else (shift.value / largeHeight).coerceAtMost(1f) }
+    val progress = { if (largeHeight == 0) 0f else (shift() / largeHeight).coerceAtMost(1f) }
 
     val edgeBottom = with(density) { 12.dp.roundToPx() }
 
@@ -220,7 +227,7 @@ fun HomeScreen() {
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
                 .layout { m, c ->
-                    val h = (headerHeight + edgeBottom - shift.value).toInt().coerceAtLeast(0)
+                    val h = (headerHeight + edgeBottom - shift()).toInt().coerceAtLeast(0)
                     val pl = m.measure(Constraints.fixed(c.maxWidth, h))
                     layout(pl.width, pl.height) { pl.place(0, 0) }
                 }
@@ -238,7 +245,7 @@ fun HomeScreen() {
             onTab = showTab,
             tabPos = pagePos,
             backdrop = backdrop,
-            shift = { shift.value },
+            shift = shift,
             progress = progress,
             modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(),
             onHeaderHeight = { headerHeight = it },

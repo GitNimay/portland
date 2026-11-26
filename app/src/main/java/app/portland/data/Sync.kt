@@ -4,7 +4,6 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import android.webkit.MimeTypeMap
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -66,8 +65,7 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
         for (pin in store.library.value.pins.filter { !it.synced }) {
             val media = store.mediaFile(pin)
             if (!media.exists()) continue // gone (or still importing); a later run retries
-            val type = MimeTypeMap.getSingleton().getMimeTypeFromExtension(pin.ext.lowercase())
-                ?: "application/octet-stream"
+            val type = pin.mimeType
             R2.put(pin.mediaKey, media, type)
             store.thumbFile(pin).takeIf { it.exists() }?.let { R2.put(pin.thumbKey, it, "image/webp") }
 
@@ -96,19 +94,25 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
 
     /** Returns true when the remote index was read, so the merged library is the whole truth. */
     private suspend fun syncIndex(store: Store): Boolean {
-        val read = R2.get("index.json")?.let { bytes ->
-            runCatching { Library.fromJson(bytes.decodeToString()) }
-                .onFailure { Log.w("Sync", "remote index unreadable, ignoring", it) }
-                .getOrNull()
+        repeat(3) { attempt ->
+            val fetched = R2.getWithEtag("index.json")
+            val read = fetched?.first?.let { bytes ->
+                runCatching { Library.fromJson(bytes.decodeToString()) }
+                    .onFailure { Log.w("Sync", "remote index unreadable, ignoring", it) }
+                    .getOrNull()
+            }
+            val remote = read ?: Library()
+            val before = store.library.value.pins.mapTo(HashSet()) { it.id }
+            store.update(sync = false) { Library.merge(it, remote) }
+            // Pins deleted on another install: their local copies go too.
+            store.dropFiles(before - store.library.value.pins.mapTo(HashSet()) { it.id })
+            val json = store.library.value.toJson(forRemote = true).encodeToByteArray()
+            if (R2.putBytesIfMatch("index.json", json, "application/json", fetched?.second)) {
+                return read != null
+            }
+            Log.i("Sync", "index.json changed concurrently, retrying merge (${attempt + 1}/3)")
         }
-        val remote = read ?: Library()
-        val before = store.library.value.pins.mapTo(HashSet()) { it.id }
-        store.update(sync = false) { Library.merge(it, remote) }
-        // Pins deleted on another install: their local copies go too.
-        store.dropFiles(before - store.library.value.pins.mapTo(HashSet()) { it.id })
-        val json = store.library.value.toJson(forRemote = true).encodeToByteArray()
-        R2.putBytes("index.json", json, "application/json")
-        return read != null
+        throw java.io.IOException("PUT index.json -> 412 conflict after retries")
     }
 
     /**

@@ -46,7 +46,7 @@ import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
-import androidx.compose.foundation.lazy.staggeredgrid.items
+import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
@@ -205,7 +205,7 @@ fun PinGrid(
         items(loading, key = { "skeleton:$it" }, contentType = { "skeleton" }) {
             SkeletonCard(SkeletonRatios[it % SkeletonRatios.size], Modifier.animateItem())
         }
-        items(pins, key = { it.id }, contentType = { "pin" }) { pin ->
+        itemsIndexed(pins, key = { _, pin -> pin.id }, contentType = { _, _ -> "pin" }) { i, pin ->
             val selected = pin.id in picked
             PinCard(
                 pin,
@@ -216,7 +216,7 @@ fun PinGrid(
                         haptics.performHapticFeedback(if (selected) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
                         selection.toggle(pin.id)
                     } else {
-                        onOpen(pins.indexOf(pin))
+                        onOpen(i)
                     }
                 },
                 onLongClick = selection?.let {

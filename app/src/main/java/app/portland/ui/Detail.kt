@@ -1,5 +1,6 @@
 package app.portland.ui
 
+import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
 import androidx.annotation.OptIn
@@ -49,7 +50,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.FrameRateCategory
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.preferredFrameRate
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
@@ -87,6 +90,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
@@ -137,12 +144,16 @@ import app.portland.store
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberCanvasBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import me.saket.telephoto.zoomable.coil3.ZoomableAsyncImage
 import me.saket.telephoto.zoomable.rememberZoomableImageState
 
@@ -185,15 +196,22 @@ fun DetailScreen(ids: List<String>, start: Int) {
     var picker by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf(false) }
     val backdrop = rememberLayerBackdrop { drawRect(p.canvas); drawContent() }
+    val staticBackdrop = rememberCanvasBackdrop { drawRect(p.canvas) }
     // A committed pull pops straight away: the shared-element transition carries the media home from where it was let go.
     val swipe = rememberMediaSwipe { leave() }
+    val chromeBackdrop = if (swipe.id != null || pager.isScrollInProgress) backdrop else staticBackdrop
     val chrome = Modifier.graphicsLayer { alpha = 1f - swipe.dismissProgress }
     // The bottom bar and filmstrip give way to the send dock as it rises into their place.
     val underDock = Modifier.graphicsLayer { alpha = (1f - swipe.dismissProgress) * (1f - swipe.sendProgress) }
     val strip = pins.size > 1
     val bottomChrome = BarHeight + BarGap + if (strip) StripHeight + StripGap else 0.dp
 
-    Box(Modifier.fillMaxSize().background(p.canvas)) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(p.canvas)
+            .preferredFrameRate(if (swipe.id != null) FrameRateCategory.High else FrameRateCategory.Default),
+    ) {
         HorizontalPager(
             state = pager,
             modifier = Modifier.fillMaxSize().layerBackdrop(backdrop),
@@ -223,7 +241,7 @@ fun DetailScreen(ids: List<String>, start: Int) {
             chrome.fillMaxWidth().statusBarsPadding().height(TopBarHeight).padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconBtn(R.drawable.ic_back, "Back", backdrop = backdrop) { leave() }
+            IconBtn(R.drawable.ic_back, "Back", backdrop = chromeBackdrop) { leave() }
             Spacer(Modifier.width(12.dp))
             AnimatedContent(
                 targetState = current.createdAt to boardName,
@@ -255,9 +273,9 @@ fun DetailScreen(ids: List<String>, start: Int) {
                 Modifier.fillMaxWidth().height(BarHeight).padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconBtn(R.drawable.ic_share, "Share", backdrop = backdrop) { swipe.openShelf(current.id) }
+                IconBtn(R.drawable.ic_share, "Share", backdrop = chromeBackdrop) { swipe.openShelf(current.id) }
                 Spacer(Modifier.weight(1f))
-                Row(Modifier.glass(backdrop, Corners.pill).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.glass(chromeBackdrop, Corners.pill).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     BarAction(R.drawable.ic_bookmark, if (boardName == null) "Save to board" else "Change board") {
                         haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
                         picker = true
@@ -269,7 +287,7 @@ fun DetailScreen(ids: List<String>, start: Int) {
                     }
                 }
                 Spacer(Modifier.weight(1f))
-                IconBtn(R.drawable.ic_info, "Details", backdrop = backdrop) { details = DetailsOpen.Info }
+                IconBtn(R.drawable.ic_info, "Details", backdrop = chromeBackdrop) { details = DetailsOpen.Info }
             }
         }
 
@@ -379,12 +397,13 @@ private fun Filmstrip(pins: List<Pin>, pager: PagerState) {
                 }
             }
     }
-    // Otherwise the pager leads: keep its pin centred (and re-centre once a scrub lets go).
+    // Otherwise the pager leads: keep its target pin centred without restarting mid-flight on distant taps.
     val page = pager.currentPage
-    LaunchedEffect(page, scrubbing) {
+    val targetPage = pager.targetPage
+    LaunchedEffect(targetPage, scrubbing) {
         if (scrubbing) return@LaunchedEffect
-        val half = with(density) { (frameWidth(pins.getOrNull(page) ?: return@LaunchedEffect) / 2).roundToPx() }
-        strip.animateScrollToItem(page, half)
+        val half = with(density) { (frameWidth(pins.getOrNull(targetPage) ?: return@LaunchedEffect) / 2).roundToPx() }
+        strip.animateScrollToItem(targetPage, half)
     }
 
     BoxWithConstraints(Modifier.fillMaxWidth().height(StripHeight)) {
@@ -644,6 +663,7 @@ private fun ZoomDialog(pin: Pin, model: Any, description: String?, onClose: () -
         Box(
             Modifier
                 .fillMaxSize()
+                .preferredFrameRate(if (swipe.id != null) FrameRateCategory.High else FrameRateCategory.Default)
                 .graphicsLayer {
                     alpha = open.value
                     val s = 0.94f + 0.06f * open.value
@@ -718,7 +738,8 @@ private fun rememberViewerPlayer(): ExoPlayer {
 @OptIn(UnstableApi::class)
 @Composable
 private fun VideoLayer(pin: Pin, active: Boolean, player: ExoPlayer, modifier: Modifier = Modifier) {
-    val store = LocalContext.current.store
+    val context = LocalContext.current
+    val store = context.store
     val haptics = LocalHapticFeedback.current
     val holder = remember(pin.id) { mutableStateOf<ExoPlayer?>(null) }
     var playing by remember(pin.id) { mutableStateOf(true) }
@@ -750,16 +771,6 @@ private fun VideoLayer(pin: Pin, active: Boolean, player: ExoPlayer, modifier: M
         playing = true
         exo.addListener(listener)
         exo.playWhenReady = true
-        val file = store.mediaFile(pin)
-        if (file.exists()) {
-            exo.setMediaItem(MediaItem.fromUri(Uri.fromFile(file)))
-        } else {
-            exo.setMediaSource(
-                ProgressiveMediaSource.Factory(OkHttpDataSource.Factory(R2.http))
-                    .createMediaSource(MediaItem.fromUri(store.media(pin).toString())),
-            )
-        }
-        exo.prepare()
         holder.value = exo
         onDispose {
             // The surface leaves composition with this page; hand the player back empty for the next video.
@@ -768,6 +779,17 @@ private fun VideoLayer(pin: Pin, active: Boolean, player: ExoPlayer, modifier: M
             exo.stop()
             exo.clearMediaItems()
         }
+    }
+    LaunchedEffect(pin.id, active) {
+        if (!active) return@LaunchedEffect
+        val file = store.mediaFile(pin)
+        if (file.exists()) {
+            player.setMediaItem(MediaItem.fromUri(Uri.fromFile(file)))
+        } else {
+            val factory = withContext(Dispatchers.IO) { VideoCache.mediaSourceFactory(context) }
+            player.setMediaSource(factory.createMediaSource(MediaItem.fromUri(store.media(pin).toString())))
+        }
+        player.prepare()
     }
 
     val exo = holder.value
@@ -938,6 +960,7 @@ private fun Scrubber(
     val thumb by animateFloatAsState(if (scrubbing) 8f else 6f, animationSpec = Motion.snappy(), label = "thumb") // radius, dp
     val setScrubbing by rememberUpdatedState(onScrubbing)
     val setPosition by rememberUpdatedState(onSeek)
+    val currentDuration by rememberUpdatedState(duration)
     Box(
         modifier
             .fillMaxWidth()
@@ -963,14 +986,14 @@ private fun Scrubber(
                     drawRect(Color.White.copy(alpha = 0.85f * line), Offset(pad, y), Size(width * fraction, h))
                 }
             }
-            .pointerInput(exo, duration) {
+            .pointerInput(exo) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     down.consume()
                     val pad = ScrubPad.toPx()
                     val track = (size.width - 2 * pad).coerceAtLeast(1f)
                     fun moveTo(x: Float) {
-                        val to = fractionToPosition((x - pad) / track, duration)
+                        val to = fractionToPosition((x - pad) / track, currentDuration)
                         exo.seekTo(to)
                         setPosition(to)
                     }
@@ -989,12 +1012,36 @@ private fun Scrubber(
                         }
                     } finally {
                         setScrubbing(false)
+                        exo.setScrubbingModeEnabled(false)
+                        if (resume) exo.play()
                     }
-                    exo.setScrubbingModeEnabled(false)
-                    if (resume) exo.play()
                 }
             },
     )
+}
+
+@OptIn(UnstableApi::class)
+private object VideoCache {
+    @Volatile private var cache: SimpleCache? = null
+    @Volatile private var factory: ProgressiveMediaSource.Factory? = null
+
+    fun mediaSourceFactory(context: Context): ProgressiveMediaSource.Factory {
+        factory?.let { return it }
+        synchronized(this) {
+            factory?.let { return it }
+            val app = context.applicationContext
+            val c = cache ?: SimpleCache(
+                File(app.cacheDir, "video_cache"),
+                LeastRecentlyUsedCacheEvictor(128L * 1024 * 1024),
+                StandaloneDatabaseProvider(app),
+            ).also { cache = it }
+            val ds = CacheDataSource.Factory()
+                .setCache(c)
+                .setUpstreamDataSourceFactory(OkHttpDataSource.Factory(R2.http))
+                .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+            return ProgressiveMediaSource.Factory(ds).also { factory = it }
+        }
+    }
 }
 
 private fun savedDate(ms: Long): String =

@@ -6,6 +6,10 @@ import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculateCentroidSize
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -17,10 +21,13 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.isSpecified
+import androidx.compose.ui.geometry.lerp
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.platform.LocalDensity
@@ -29,6 +36,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.round
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.util.lerp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -390,6 +398,123 @@ private suspend fun AwaitPointerEventScope.trackDrag(pointer: PointerId, swipe: 
     }
 }
 
+/**
+ * A pinch on the viewer's media, Photos-style: the media grows (or shrinks) under the fingers and follows them,
+ * then [reset] springs it back. Read [scale] and [offset] at draw time only (graphicsLayer), so a pinch never
+ * recomposes. [offset] is the translation of the media's centre, in px.
+ */
+@Stable
+class PeekZoom internal constructor(private val scope: CoroutineScope) {
+    var scale by mutableFloatStateOf(1f)
+        private set
+    var offset by mutableStateOf(Offset.Zero)
+        private set
+
+    /** Whether a pinch is under way; one-finger swipes wait for it to end. */
+    var pinching by mutableStateOf(false)
+        internal set
+
+    /**
+     * Called when a pinch ends with its final [scale] and the fingers' centroid relative to the media's centre.
+     * Null, or one that does nothing else, springs back. Set by whoever shows the media; read only on release.
+     */
+    var onRelease: ((scale: Float, centroid: Offset) -> Unit)? = null
+
+    private var settle: Job? = null
+
+    internal fun begin() {
+        settle?.cancel()
+        pinching = true
+    }
+
+    /**
+     * Applies one frame of a pinch: [zoom] times bigger around [centroid] (relative to the media's centre), moved
+     * by [pan]. The point under the fingers stays under the fingers.
+     */
+    internal fun transform(zoom: Float, pan: Offset, centroid: Offset) {
+        val next = (scale * zoom).coerceIn(MinPeek, MaxPeek)
+        val z = next / scale
+        offset = centroid + pan - (centroid - offset) * z
+        scale = next
+    }
+
+    /** Springs back to rest (or jumps there, unanimated). */
+    fun reset(animated: Boolean = true) {
+        settle?.cancel()
+        if (!animated) {
+            scale = 1f
+            offset = Offset.Zero
+            return
+        }
+        val fromScale = scale
+        val fromOffset = offset
+        settle = scope.launch {
+            animate(0f, 1f, animationSpec = PeekSpring) { t, _ ->
+                scale = lerp(fromScale, 1f, t)
+                offset = lerp(fromOffset, Offset.Zero, t)
+            }
+        }
+    }
+
+    internal companion object {
+        const val MinPeek = 0.8f
+        const val MaxPeek = 5f
+    }
+}
+
+@Composable
+fun rememberPeekZoom(key: Any?): PeekZoom {
+    val scope = rememberCoroutineScope()
+    return remember(key) { PeekZoom(scope) }
+}
+
+/**
+ * Two-finger pinches feeding [zoom]. One-finger touches pass through untouched (pager swipes, pull to dismiss,
+ * taps). Once a pinch starts, its moves are consumed so the pager and the vertical swipes leave it alone, until
+ * every finger lifts; then [PeekZoom.onRelease] gets the final scale and the fingers' last centroid relative to
+ * the node's centre, or without one the media springs back. [enabled] is checked per gesture.
+ */
+fun Modifier.peekZoom(zoom: PeekZoom, enabled: () -> Boolean = { true }): Modifier = pointerInput(zoom) {
+    awaitEachGesture {
+        awaitFirstDown(requireUnconsumed = false)
+        if (!enabled()) return@awaitEachGesture
+        var pinching = false
+        var total = 1f
+        var last = Offset.Zero
+        try {
+            do {
+                val event = awaitPointerEvent()
+                val fingers = event.changes.count { it.pressed }
+                if (fingers >= 2) {
+                    val factor = event.calculateZoom()
+                    val pan = event.calculatePan()
+                    val centroid = event.calculateCentroid(useCurrent = true)
+                    if (!pinching) {
+                        total *= factor
+                        val span = event.calculateCentroidSize(useCurrent = true)
+                        // Past touch slop in finger travel, not a ratio, so small and large spreads feel the same.
+                        if (abs(1f - total) * span > viewConfiguration.touchSlop) {
+                            pinching = true
+                            zoom.begin()
+                        }
+                    }
+                    if (pinching && centroid.isSpecified) {
+                        last = centroid - Offset(size.width / 2f, size.height / 2f)
+                        zoom.transform(factor, pan, last)
+                    }
+                }
+                // Once pinching, the gesture is ours until the last finger lifts (one finger left is not a swipe).
+                if (pinching) event.changes.forEach { if (it.positionChanged()) it.consume() }
+            } while (event.changes.any { it.pressed })
+        } finally {
+            if (pinching) {
+                zoom.pinching = false
+                zoom.onRelease?.invoke(zoom.scale, last) ?: zoom.reset()
+            }
+        }
+    }
+}
+
 /** [Offset.round] throws on NaN/Infinity; a bad frame of spring or velocity math must not crash the app. */
 internal fun Offset.safeRound(): IntOffset = if (x.isFinite() && y.isFinite()) round() else IntOffset.Zero
 
@@ -406,4 +531,5 @@ private const val MediaRise = 0.22f
 private val ReturnSpring = spring<Offset>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 420f)
 private val ShelfSpring = spring<Float>(dampingRatio = 0.86f, stiffness = 420f)
 private val ShelfDownSpring = spring<Float>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 420f) // sheets leave without a bounce
+private val PeekSpring = spring<Float>(dampingRatio = 0.82f, stiffness = 380f) // a pinch let go settles back with a hint of give
 private val FlyOutSpring = spring(Spring.DampingRatioNoBouncy, 300f, visibilityThreshold = Offset(40f, 40f))

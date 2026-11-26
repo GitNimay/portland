@@ -211,13 +211,20 @@ class Store(private val app: Context) {
      * Adds a file downloaded elsewhere (a pasted link) as a new pin on top. The file is moved, not copied.
      * Throws when it is not a readable image or video.
      */
-    suspend fun addFile(file: File, mime: String, boardId: String?, cover: File? = null) {
+    /**
+     * Adds a downloaded [file] as a pin saved at [createdAt]. The pin goes where that time puts it in the newest-first
+     * feed, so the items of one post, downloaded in parallel and finishing in any order, still keep the post's order.
+     */
+    suspend fun addFile(file: File, mime: String, boardId: String?, cover: File? = null, createdAt: Long = System.currentTimeMillis()) {
         val pin = withContext(Dispatchers.IO) {
-            import(mime, boardId, System.currentTimeMillis(), cover) { media ->
+            import(mime, boardId, createdAt, cover) { media ->
                 if (!file.renameTo(media)) file.copyTo(media, overwrite = true).also { file.delete() }
             }
         }
-        update { it.copy(pins = listOf(pin) + it.pins) }
+        update { lib ->
+            val at = lib.pins.indexOfFirst { it.createdAt <= pin.createdAt }.let { if (it < 0) lib.pins.size else it }
+            lib.copy(pins = lib.pins.toMutableList().apply { add(at, pin) })
+        }
         Captions.schedule(app)
     }
 

@@ -9,6 +9,8 @@ import android.widget.Toast
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
+import androidx.work.Data
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
@@ -32,7 +34,8 @@ import java.util.concurrent.TimeUnit
 /**
  * Saves the image or video behind a pasted link, in the background: a link straight to a media file, a video on
  * YouTube, X, Instagram, TikTok and the like (via yt-dlp, see [Video]), or the media a page advertises to link
- * previews (og:video, og:image, …).
+ * previews (og:video, og:image, …). An X post or Pinterest pin with several photos or videos saves all of them,
+ * each as a parallel download of its own (see [Posts]).
  */
 object Links {
     private const val TAG = "link"
@@ -43,13 +46,68 @@ object Links {
         URL_REGEX.find(text)?.value?.trimEnd('.', ',', ')', ']')?.takeIf { it.toHttpUrlOrNull() != null }
 
     fun enqueue(context: Context, url: String, boardId: String?) {
-        val work = OneTimeWorkRequestBuilder<LinkWorker>()
-            .setInputData(workDataOf("url" to url, "board" to boardId))
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
-            .addTag(TAG)
-            .build()
-        WorkManager.getInstance(context).enqueue(work)
+        WorkManager.getInstance(context).enqueue(request(workDataOf("url" to url, "board" to boardId)))
+    }
+
+    /**
+     * Saves each item of a post that holds several (an X post's photos, a Pinterest carousel) as a download of its
+     * own, so they run side by side and a failed one is retried alone. Unique per [parent] link job and position,
+     * so a rerun of that job never saves an item twice. The items keep the post's order in the feed.
+     */
+    internal fun enqueueItems(context: Context, parent: String, items: List<PostMedia>, boardId: String?) {
+        val now = System.currentTimeMillis()
+        val wm = WorkManager.getInstance(context)
+        items.forEachIndexed { i, item ->
+            val data = workDataOf("url" to item.url, "board" to boardId, "item" to true, "created" to now - i)
+            wm.enqueueUniqueWork("link:$parent:$i", ExistingWorkPolicy.KEEP, request(data))
+        }
+    }
+
+    private fun request(data: Data) = OneTimeWorkRequestBuilder<LinkWorker>()
+        .setInputData(data)
+        .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+        .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
+        .addTag(TAG)
+        .build()
+
+    /**
+     * Every image and video of the X post or Pinterest pin at [url], read from the JSON those sites serve their own
+     * embeds and web app. Empty when [url] is not such a post or the site would not say; the caller then saves the
+     * link the usual way, so this never fails a save.
+     */
+    internal suspend fun postMedia(url: String): List<PostMedia> = withContext(Dispatchers.IO) {
+        try {
+            Posts.tweetId(url)?.let { id ->
+                return@withContext fetchJson(Posts.tweetApi(id).toString())?.let(Posts::tweetMedia).orEmpty()
+            }
+            // A pin.it short link redirects to the pin; the redirects are followed to learn its id.
+            val pinUrl = if (Posts.isPinShortLink(url)) runCatching { get(url).use { it.request.url.toString() } }.getOrNull() else url
+            val id = pinUrl?.let(Posts::pinId) ?: return@withContext emptyList()
+            fetchJson(
+                Posts.pinApi(id).toString(),
+                "Accept" to "application/json, text/javascript, */*, q=0.01",
+                "X-Requested-With" to "XMLHttpRequest",
+                "X-Pinterest-AppState" to "active",
+                "X-Pinterest-PWS-Handler" to "www/pin/[id].js",
+            )?.let(Posts::pinMedia).orEmpty()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("Links", "couldn't read the post's media: $url", e)
+            emptyList()
+        }
+    }
+
+    private fun fetchJson(url: String, vararg headers: Pair<String, String>): String? {
+        val builder = Request.Builder().url(url).header("User-Agent", UA)
+        headers.forEach { (k, v) -> builder.header(k, v) }
+        R2.http.newCall(builder.build()).execute().use { r ->
+            if (!r.isSuccessful) return null
+            if (r.body.contentLength() > MAX_JSON) return null
+            val source = r.body.source()
+            source.request(MAX_JSON)
+            return source.buffer.clone().readUtf8()
+        }
     }
 
     /** Links still waiting or downloading. Lives in WorkManager, so it survives the app being closed. */
@@ -146,6 +204,7 @@ object Links {
     class NoMedia : Exception("no image or video at that link")
 
     private const val MAX_PAGE = 2L * 1024 * 1024
+    private const val MAX_JSON = 8L * 1024 * 1024
     private const val MAX_MEDIA_BYTES = 512L * 1024 * 1024
     private val URL_REGEX = Regex("""https?://[^\s<>"']+""")
 }
@@ -190,12 +249,23 @@ private fun unescape(s: String): String = s
 class LinkWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val url = inputData.getString("url") ?: return Result.failure()
+        val board = inputData.getString("board")
+        val item = inputData.getBoolean("item", false)
         val store = (applicationContext as App).store
+        // A post with several photos or videos (X, Pinterest): each one becomes its own pin, downloaded in parallel.
+        if (!item) {
+            val media = Links.postMedia(url)
+            if (media.size > 1) {
+                Links.enqueueItems(applicationContext, id.toString(), media, board)
+                return Result.success()
+            }
+        }
         // One folder per link that outlives retries, so a half-downloaded video resumes instead of starting over.
         val dir = File(applicationContext.cacheDir, "links/$id")
         return try {
             val got = Links.download(applicationContext, url, dir)
-            store.addFile(got.file, got.mime, inputData.getString("board"), got.cover)
+            val created = inputData.getLong("created", 0L).takeIf { it > 0L } ?: System.currentTimeMillis()
+            store.addFile(got.file, got.mime, board, got.cover, created)
             dir.deleteRecursively()
             Result.success()
         } catch (e: CancellationException) {
@@ -214,7 +284,11 @@ class LinkWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
     private fun fail(dir: File, reason: String? = null): Result {
         dir.deleteRecursively()
-        val msg = reason ?: "Couldn't find an image or video at that link"
+        val msg = reason ?: if (inputData.getBoolean("item", false)) {
+            "Couldn't save one of the post's images or videos"
+        } else {
+            "Couldn't find an image or video at that link"
+        }
         Handler(Looper.getMainLooper()).post { Toast.makeText(applicationContext, msg, Toast.LENGTH_LONG).show() }
         return Result.failure()
     }

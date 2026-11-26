@@ -30,6 +30,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.FutureTask
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -42,14 +43,19 @@ class Store(private val app: Context) {
     private val mediaDir = File(app.filesDir, "media").apply { mkdirs() }
     private val thumbDir = File(app.filesDir, "thumbs").apply { mkdirs() }
     private val lock = Mutex()
-    private val state = MutableStateFlow(load())
+
+    // library.json is read and parsed on its own thread from the moment the store is made (Application.onCreate),
+    // so a large library no longer holds up the start: the parse overlaps the activity being created. The first
+    // reader (usually the first frame) waits only for whatever is left of it, and gets exactly what load() returns.
+    private val loading = FutureTask(::load).also { Thread(it, "library-load").start() }
+    private val state by lazy { MutableStateFlow(loading.get()) }
     private val _importing = MutableStateFlow(0)
     private val scope = CoroutineScope(
         SupervisorJob() + Dispatchers.Main.immediate +
             CoroutineExceptionHandler { _, e -> Log.e("Store", "operation failed", e) },
     )
 
-    val library: StateFlow<Library> = state
+    val library: StateFlow<Library> get() = state
 
     /** Runs a store operation that must outlive the screen that started it. */
     fun launch(block: suspend Store.() -> Unit) {

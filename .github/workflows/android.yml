@@ -95,6 +95,35 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 3
 
+  release-check:
+    name: Release Build Check
+    # Pull requests only. Builds the shrunk (R8) release APK with no secrets (debug-signed, local-only), so a
+    # shrinker or resource problem shows on the PR rather than in the release job after merge, and records the
+    # APK and dex sizes so a change's effect on them is visible before it ships.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-android-gradle
+        with:
+          job-key: build-release
+
+      - name: Assemble Release APK
+        run: ./gradlew :app:assembleRelease -x lintVitalRelease --stacktrace
+
+      - name: Write size summary
+        run: |
+          apk=app/build/outputs/apk/release/app-release.apk
+          test -s "$apk"
+          {
+            echo "### Release APK size"
+            echo "| File | Bytes |"
+            echo "|---|---:|"
+            echo "| app-release.apk | $(stat -c %s "$apk") |"
+            unzip -lv "$apk" | awk '$8 ~ /^classes[0-9]*\.dex$/ { print "| " $8 " | " $1 " |" }'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   dependency-graph:
     name: Dependency Graph
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

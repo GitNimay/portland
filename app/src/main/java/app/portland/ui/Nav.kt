@@ -86,17 +86,29 @@ private val LocalShared = staticCompositionLocalOf<SharedTransitionScope?> { nul
 private val LocalAnim = staticCompositionLocalOf<AnimatedVisibilityScope?> { null }
 
 /** Morphs a pin's media between the grid and the viewer. Apply before clip/size modifiers. */
+@Composable
+fun Modifier.sharedPin(id: String): Modifier = sharedPin(rememberSharedPin(id))
+
+/** The shared-element state behind [sharedPin]; hold on to it to hand a gesture's velocity to the transition. */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-fun Modifier.sharedPin(id: String): Modifier {
+fun rememberSharedPin(id: String): SharedTransitionScope.SharedContentState? {
+    val shared = LocalShared.current ?: return null
+    return with(shared) { rememberSharedContentState("pin:$id") }
+}
+
+/**
+ * [sharedPin] with a state from [rememberSharedPin]. Shared bounds come from layout, so anything that should
+ * move the shared media (e.g. a drag offset) must be placement (Modifier.offset) applied *before* this.
+ */
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+fun Modifier.sharedPin(state: SharedTransitionScope.SharedContentState?): Modifier {
     val shared = LocalShared.current ?: return this
     val anim = LocalAnim.current ?: return this
+    if (state == null) return this
     return with(shared) {
-        this@sharedPin.sharedElement(
-            rememberSharedContentState("pin:$id"),
-            anim,
-            boundsTransform = { _, _ -> Motion.snappy() },
-        )
+        this@sharedPin.sharedElement(state, anim, boundsTransform = { _, _ -> Motion.snappy() })
     }
 }
 

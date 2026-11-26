@@ -30,6 +30,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.util.lerp
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
@@ -89,35 +96,69 @@ fun HomeScreen() {
     val importing by store.importing.collectAsStateWithLifecycle()
     val update by Updater.ready.collectAsStateWithLifecycle()
     val activity = LocalActivity.current
-    var tab by rememberSaveable { mutableIntStateOf(0) } // 0 = pins, 1 = boards
+    var tab by rememberSaveable { mutableIntStateOf(0) } // 0 = pins, 1 = boards: the section chosen, outside search
     var query by rememberSaveable { mutableStateOf<String?>(null) } // null = search closed
+    val searching = query != null
     val selection = rememberPinSelection()
+    val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
 
     val pins = remember(lib.pins, lib.boards, query) { lib.search(query.orEmpty()) }
 
-    // Hoisted so the segmented control keeps sliding while the grid swaps between pins and boards.
-    val tabPos by animateFloatAsState(if (query != null) 0f else tab.toFloat(), Motion.snappy(), label = "tab")
+    // Pins and Boards side by side: swipe between them, or tap the segmented control. Search shows pins only.
+    val pager = rememberPagerState(initialPage = tab) { 2 }
+    // The thumb rides the pager itself, so it follows the finger 1:1 and glides on a tap.
+    val pagePos = { (pager.currentPage + pager.currentPageOffsetFraction).coerceIn(0f, 1f) }
+    LaunchedEffect(searching) {
+        val target = if (searching) 0 else tab
+        if (pager.currentPage != target || pager.currentPageOffsetFraction != 0f) pager.animateScrollToPage(target, animationSpec = Motion.snappy())
+    }
+    // A swipe that lands on the other section makes it the chosen one.
+    LaunchedEffect(pager) {
+        snapshotFlow { pager.settledPage }.collect { if (query == null && tab != it) { tab = it; selection.clear() } }
+    }
+    // One tick as a swipe crosses over to the other section, like the segmented control's own.
+    val dragged by pager.interactionSource.collectIsDraggedAsState()
+    LaunchedEffect(pager) {
+        snapshotFlow { pager.targetPage }.drop(1).collect { if (dragged) haptics.performHapticFeedback(HapticFeedbackType.SegmentTick) }
+    }
+    val showTab: (Int) -> Unit = { i ->
+        tab = i
+        selection.clear()
+        scope.launch { pager.animateScrollToPage(i, animationSpec = Motion.snappy()) }
+    }
 
-    BackHandler(query != null) { query = null }
+    BackHandler(searching) { query = null }
+    // Back from Boards returns to Pins first, the app's start, before it leaves the app.
+    BackHandler(!searching && !selection.active && tab == 1) { showTab(0) }
 
     val backdrop = rememberLayerBackdrop { drawRect(p.canvas); drawContent() }
     val density = LocalDensity.current
 
     val pinsState = rememberLazyStaggeredGridState()
     val boardsState = rememberLazyStaggeredGridState()
-    val grid = if (tab == 1 && query == null) boardsState else pinsState
     var headerHeight by remember { mutableIntStateOf(0) } // the whole pinned header, status bar included
     var largeHeight by remember { mutableIntStateOf(0) } // only the large-title block that scrolls away
     // Past the large title the Pins/Boards control keeps rising until it docks in the top bar beside search,
     // so the collapsed header is a single row and the feed gets the rest of the screen.
     val dock = if (query == null) with(density) { TabDock.roundToPx() } else 0
     val collapse = largeHeight + dock
+    val edgeSpan = with(density) { 24.dp.toPx() }
 
-    // Collapse tied 1:1 to the finger, but gliding when the grid swaps (tab change or search).
+    // Mid-swipe the header sits between the two sections' scroll positions, in proportion to the swipe.
+    val headerScroll = {
+        val cap = collapse.toFloat()
+        lerp(pinsState.headerScroll().coerceAtMost(cap), boardsState.headerScroll().coerceAtMost(cap), pagePos())
+    }
+    val edge = {
+        lerp((pinsState.headerScroll() / edgeSpan).coerceIn(0f, 1f), (boardsState.headerScroll() / edgeSpan).coerceIn(0f, 1f), pagePos())
+    }
+
+    // Collapse tied 1:1 to the finger (scrolling or swiping), but gliding when the title block changes (search).
     val shift = remember { Animatable(0f) }
-    LaunchedEffect(grid, collapse) {
+    LaunchedEffect(collapse, searching) {
         var first = true
-        snapshotFlow { grid.headerScroll().coerceAtMost(collapse.toFloat()) }.collect { target ->
+        snapshotFlow { headerScroll() }.collect { target ->
             if (first) {
                 first = false
                 shift.animateTo(target, Motion.smooth())
@@ -130,39 +171,48 @@ fun HomeScreen() {
     val progress = { if (largeHeight == 0) 0f else (shift.value / largeHeight).coerceAtMost(1f) }
 
     val edgeBottom = with(density) { 12.dp.roundToPx() }
-    val edgeSpan = with(density) { 24.dp.toPx() }
 
     Box(Modifier.fillMaxSize().background(p.canvas)) {
-        if (tab == 1 && query == null) {
-            BoardsGrid(
-                lib = lib,
-                modifier = Modifier.fillMaxSize().layerBackdrop(backdrop),
-                state = boardsState,
-                header = { Spacer(Modifier.height(with(density) { headerHeight.coerceAtLeast(1).toDp() })) },
-            )
-        } else {
-            PinGrid(
-                pins = pins,
-                onOpen = { i -> nav.push(Screen.Detail(pins.map { it.id }, i)) },
-                modifier = Modifier.fillMaxSize().layerBackdrop(backdrop),
-                selection = selection,
-                loading = if (query == null) importing else 0,
-                state = pinsState,
-                header = {
-                    Column {
-                        // Never 0 tall: a 0-height first row makes the grid anchor on the first pin, so it would open scrolled.
-                        Spacer(Modifier.height(with(density) { headerHeight.coerceAtLeast(1).toDp() }))
-                        when {
-                            importing > 0 && query == null -> {}
-                            lib.pins.isEmpty() -> EmptyState(
-                                "Nothing saved yet",
-                                "Tap + to add images, videos or a link, or share them to Portland from any app.",
-                            )
-                            pins.isEmpty() -> EmptyState("No matches", "Nothing in your notes, descriptions, board names or colours matches “${query?.trim()}”.")
+        // One backdrop over the pager, not one per grid: mid-swipe the glass sees both sections.
+        HorizontalPager(
+            state = pager,
+            modifier = Modifier.fillMaxSize().layerBackdrop(backdrop),
+            // Both grids stay composed and measured, so the other section is ready the moment a swipe starts.
+            beyondViewportPageCount = 1,
+            userScrollEnabled = !searching && !selection.active,
+            key = { it },
+        ) { page ->
+            if (page == 1) {
+                BoardsGrid(
+                    lib = lib,
+                    modifier = Modifier.fillMaxSize(),
+                    state = boardsState,
+                    header = { Spacer(Modifier.height(with(density) { headerHeight.coerceAtLeast(1).toDp() })) },
+                )
+            } else {
+                PinGrid(
+                    pins = pins,
+                    onOpen = { i -> nav.push(Screen.Detail(pins.map { it.id }, i)) },
+                    modifier = Modifier.fillMaxSize(),
+                    selection = selection,
+                    loading = if (query == null) importing else 0,
+                    state = pinsState,
+                    header = {
+                        Column {
+                            // Never 0 tall: a 0-height first row makes the grid anchor on the first pin, so it would open scrolled.
+                            Spacer(Modifier.height(with(density) { headerHeight.coerceAtLeast(1).toDp() }))
+                            when {
+                                importing > 0 && query == null -> {}
+                                lib.pins.isEmpty() -> EmptyState(
+                                    "Nothing saved yet",
+                                    "Tap + to add images, videos or a link, or share them to Portland from any app.",
+                                )
+                                pins.isEmpty() -> EmptyState("No matches", "Nothing in your notes, descriptions, board names or colours matches “${query?.trim()}”.")
+                            }
                         }
-                    }
-                },
-            )
+                    },
+                )
+            }
         }
         // Scroll edge: the feed is blurred and washed as it slides under the pinned header.
         Box(
@@ -174,7 +224,7 @@ fun HomeScreen() {
                     val pl = m.measure(Constraints.fixed(c.maxWidth, h))
                     layout(pl.width, pl.height) { pl.place(0, 0) }
                 }
-                .scrollEdge(backdrop) { (grid.headerScroll() / edgeSpan).coerceIn(0f, 1f) },
+                .scrollEdge(backdrop, edge),
         )
         Header(
             lib = lib,
@@ -184,9 +234,9 @@ fun HomeScreen() {
             onUpdate = { activity?.let { a -> store.launch { Updater.install(a) } } },
             query = query,
             onQuery = { query = it },
-            tab = if (query != null) 0 else tab,
-            onTab = { tab = it; selection.clear() },
-            tabPos = { tabPos },
+            tab = { if (searching) 0 else pager.targetPage },
+            onTab = showTab,
+            tabPos = pagePos,
             backdrop = backdrop,
             shift = { shift.value },
             progress = progress,
@@ -216,7 +266,7 @@ private fun Header(
     onUpdate: () -> Unit,
     query: String?,
     onQuery: (String?) -> Unit,
-    tab: Int,
+    tab: () -> Int,
     onTab: (Int) -> Unit,
     tabPos: () -> Float,
     backdrop: Backdrop,
@@ -355,21 +405,21 @@ private fun Header(
                     )
                     Row(Modifier.fillMaxSize()) {
                         listOf("Pins", "Boards").forEachIndexed { i, label ->
-                            val color by animateColorAsState(if (i == tab) p.ink else p.ink2, Motion.smooth(), label = "tabColor")
+                            val color by animateColorAsState(if (i == tab()) p.ink else p.ink2, Motion.smooth(), label = "tabColor")
                             Box(
                                 Modifier
                                     .width(107.dp)
                                     .fillMaxHeight()
                                     .clip(Corners.pill)
                                     .clickable(role = Role.Tab, onClickLabel = label) {
-                                        if (i != tab) haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                                        if (i != tab()) haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
                                         onTab(i)
                                     },
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
                                     label,
-                                    style = Type.caption.copy(fontWeight = if (i == tab) FontWeight.SemiBold else FontWeight.Medium),
+                                    style = Type.caption.copy(fontWeight = if (i == tab()) FontWeight.SemiBold else FontWeight.Medium),
                                     color = color,
                                 )
                             }

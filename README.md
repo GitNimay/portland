@@ -10,7 +10,9 @@ A private, single-user inspiration safe for Android. Save images and videos, sor
 - Tap + and the glass button morphs into a panel: pick from the photo library, or paste a link
 - Links (pasted, or shared to Portland as text) download in the background, even with the app closed: videos from YouTube, X, Instagram, TikTok and the many other sites yt-dlp supports (up to 1080p, H.264, with the site's own cover as the preview), direct image/video URLs, and pages that advertise an image (og:image). Sites that demand a login or a bot check say so in a toast instead of saving a thumbnail
 - Boards, notes, search (notes, AI descriptions, board names, and colours: "blue", "red pink" or "grey")
+- Swipe the feed left and right between Pins and Boards (back on Boards returns to Pins)
 - Viewer: swipe between pins, pinch-zoom images, looping video with a draggable timeline and double-tap to skip 10s back or forward
+- In the viewer, pull a pin down to fly it back into the grid; push it up for the send shelf (send with the system share sheet, save to the gallery, copy the image). Both also work in the full-screen zoom
 - Long-press to select several pins, then add them to a board or delete them in one go
 - Every pin is backed up to Cloudflare R2; a fresh install restores the whole library
 - Each new pin is described by Workers AI in the background (~1–2s) and the description fades into the feed
@@ -54,4 +56,5 @@ The signing key (`release.jks`, git-ignored) and its password must never be lost
 - `data/Video.kt`: on-device yt-dlp (youtubedl-android, with its own Python and ffmpeg; about 50 MB of the APK). It updates yt-dlp itself once a day, since sites change faster than app releases.
 - `data/R2.kt`: a hand-written SigV4 OkHttp interceptor, so Coil and ExoPlayer stream straight from the private bucket.
 - `data/Captions.kt`: sends the thumbnail to `@cf/mistralai/mistral-small-3.1-24b-instruct`, four at a time. It was the fastest and most concrete of the vision models benchmarked.
+- `ui/Gestures.kt`: the viewer's swipes. One pointer handler claims a drag only once it is clearly vertical (so the pager and taps keep working), and every frame is read at draw/placement time, so a drag never recomposes. The pulled pin moves by placement (not a layer) so the shared-element transition flies it home from where it was let go, with the finger's velocity.
 - UI: Jetpack Compose, Geist, three type sizes (28/16/13sp), a monochrome alpha-ink palette, light and dark.

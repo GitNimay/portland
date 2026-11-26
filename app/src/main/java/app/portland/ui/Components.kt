@@ -228,7 +228,6 @@ fun PinGrid(
     header: @Composable () -> Unit = {},
 ) {
     val haptics = LocalHaptics.current
-    val picked = selection?.ids.orEmpty()
     LazyVerticalStaggeredGrid(
         columns = StaggeredGridCells.Fixed(2),
         state = state,
@@ -242,6 +241,8 @@ fun PinGrid(
             SkeletonCard(SkeletonRatios[it % SkeletonRatios.size], Modifier.animateItem())
         }
         itemsIndexed(pins, key = { _, pin -> pin.id }, contentType = { _, _ -> "pin" }) { i, pin ->
+            // Read per card, not around the grid: toggling one pin re-runs the cards, not the grid and its item list.
+            val picked = selection?.ids.orEmpty()
             val selected = pin.id in picked
             PinCard(
                 pin,

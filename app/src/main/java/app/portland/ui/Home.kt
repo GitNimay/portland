@@ -259,8 +259,8 @@ fun HomeScreen() {
                 .scrollEdge(backdrop, edge),
         )
         Header(
-            lib = lib,
-            importing = importing,
+            // A string, not the library: a caption or note landing on one pin leaves it unchanged, so the header skips.
+            status = if (query.isNullOrBlank()) status(lib, importing) else "",
             matches = if (query.isNullOrBlank()) null else pins.size,
             update = update,
             onUpdate = { activity?.let { a -> store.launch { Updater.install(a) } } },
@@ -302,8 +302,7 @@ fun HomeScreen() {
 
 @Composable
 private fun Header(
-    lib: Library,
-    importing: Int,
+    status: String,
     matches: Int?,
     update: Release?,
     onUpdate: () -> Unit,
@@ -403,7 +402,7 @@ private fun Header(
             if (query == null) Text("Portland", style = Type.largeTitle, color = p.ink)
             // Status changes ("Adding 2…" → "backed up") cross-fade instead of snapping.
             AnimatedContent(
-                targetState = matches?.let { if (it == 1) "1 match" else "$it matches" } ?: status(lib, importing),
+                targetState = matches?.let { if (it == 1) "1 match" else "$it matches" } ?: status,
                 transitionSpec = { fadeIn(tween(220, delayMillis = 60)) togetherWith fadeOut(tween(120)) using SizeTransform(clip = false) },
                 modifier = Modifier.padding(top = if (query == null) 4.dp else 0.dp),
                 label = "status",

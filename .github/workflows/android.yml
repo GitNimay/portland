@@ -3,8 +3,10 @@ name: Android
 on:
   push:
     branches: [main]
-    paths-ignore: ["**.md"]
+    paths-ignore: ["**.md", "docs/**"]
   pull_request:
+    branches: [main]
+    paths-ignore: ["**.md", "docs/**"]
   workflow_dispatch:
 
 concurrency:
@@ -16,9 +18,13 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  unit-tests:
+    name: Unit Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
@@ -26,16 +32,101 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v6
-      # No secrets here: the app builds in local-only mode, so PRs from anywhere are safe to run.
-      - run: ./gradlew :app:testDebugUnitTest :app:assembleDebug
 
-  release:
-    needs: test
-    if: github.event_name != 'pull_request'
+      # No secrets here: runs JVM unit tests in local-only mode.
+      - name: Run unit tests
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
+
+      - name: Publish test report
+        uses: dorny/test-reporter@v3
+        if: ${{ !cancelled() }}
+        with:
+          name: Unit Test Results
+          path: app/build/test-results/testDebugUnitTest/TEST-*.xml
+          reporter: java-junit
+          fail-on-error: true
+
+      - name: Upload test report on failure
+        uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: unit-test-reports
+          path: app/build/reports/tests/
+          retention-days: 7
+
+  lint:
+    name: Android Lint
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Run Android Lint
+        run: ./gradlew :app:lintDebug --stacktrace
+
+      - name: Upload lint report
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: lint-reports
+          path: app/build/reports/lint-results-debug.*
+          retention-days: 7
+
+  build-debug:
+    name: Debug Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v6
+
+      # No secrets here: builds in local-only mode, verifying packaging and resources.
+      - name: Assemble Debug APK
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v7
+        if: github.event_name == 'pull_request'
+        with:
+          name: debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 3
+
+  dependency-graph:
+    name: Dependency Graph
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
-      contents: write # GitHub release
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/dependency-submission@v6
+
+  build-release:
+    name: Build Release APK
+    # Runs in parallel with unit-tests & lint on main, then publish gates on all three passing.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      version_code: ${{ steps.meta.outputs.version_code }}
+      version_name: ${{ steps.meta.outputs.version_name }}
     env:
       R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
@@ -53,35 +144,99 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
 
       - name: Version and signing key
+        id: meta
         env:
           KEYSTORE: ${{ secrets.RELEASE_KEYSTORE }}
         run: |
           # +100 keeps every CI build above local builds (versionCode 1).
-          echo "VERSION_CODE=$((GITHUB_RUN_NUMBER + 100))" >> "$GITHUB_ENV"
-          echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.jks"
+          code=$((GITHUB_RUN_NUMBER + 100))
+          name="1.0.$code"
+          echo "VERSION_CODE=$code" >> "$GITHUB_ENV"
+          echo "version_code=$code" >> "$GITHUB_OUTPUT"
+          echo "version_name=$name" >> "$GITHUB_OUTPUT"
+          printf '%s' "$KEYSTORE" | tr -d '\r\n' | base64 -d > "$RUNNER_TEMP/release.jks"
           echo "RELEASE_STORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
 
-      - run: ./gradlew :app:assembleRelease
+      # Skip lintVitalRelease here since the parallel `lint` job runs full lintDebug.
+      - name: Assemble Release APK
+        run: ./gradlew :app:assembleRelease -x lintVitalRelease --stacktrace
+
+      - name: Stage release artifacts
+        run: |
+          test -s app/build/outputs/apk/release/app-release.apk
+          mkdir -p "$RUNNER_TEMP/dist"
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/dist/"
+          if [ -f app/build/outputs/mapping/release/mapping.txt ]; then
+            cp app/build/outputs/mapping/release/mapping.txt "$RUNNER_TEMP/dist/"
+          fi
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-artifacts
+          path: ${{ runner.temp }}/dist/
+          retention-days: 1
+
+  publish:
+    name: Publish Release
+    needs: [unit-tests, lint, build-release]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
+    permissions:
+      contents: write # GitHub release
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
+      R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
+      VERSION_CODE: ${{ needs.build-release.outputs.version_code }}
+      VERSION_NAME: ${{ needs.build-release.outputs.version_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-artifacts
+          path: release-artifacts
 
       - name: Publish to R2
         run: |
-          apk=app/build/outputs/apk/release/app-release.apk
+          apk="release-artifacts/app-release.apk"
+          test -s "$apk"
           key="releases/portland-$VERSION_CODE.apk"
           put() {
-            curl -fsS --aws-sigv4 "aws:amz:auto:s3" --user "$R2_ACCESS_KEY:$R2_SECRET_KEY" \
+            curl -fsS --retry 3 --retry-all-errors --connect-timeout 15 --max-time 120 \
+              --aws-sigv4 "aws:amz:auto:s3" --user "$R2_ACCESS_KEY:$R2_SECRET_KEY" \
               -H "Content-Type: $3" -T "$1" "https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com/$R2_BUCKET/$2"
           }
           put "$apk" "$key" application/vnd.android.package-archive
-          jq -n --argjson code "$VERSION_CODE" --arg name "1.0.$VERSION_CODE" --arg apk "$key" \
-            --arg sha "$(sha256sum "$apk" | cut -d' ' -f1)" --arg notes "$(git log -1 --pretty=%s)" \
+          sha="$(sha256sum "$apk" | cut -d' ' -f1)"
+          jq -n --argjson code "$VERSION_CODE" --arg name "$VERSION_NAME" --arg apk "$key" \
+            --arg sha "$sha" --arg notes "$(git log -1 --pretty=%s)" \
             '{versionCode: $code, versionName: $name, apk: $apk, sha256: $sha, notes: $notes}' > latest.json
           # The pointer goes last, so installed apps only ever see a fully uploaded build.
           put latest.json releases/latest.json application/json
+          echo "APK_SHA256=$sha" >> "$GITHUB_ENV"
           # shortcut: old releases/portland-*.apk are kept (~4.5 MB each); prune them once the bucket nears the 10 GB free tier.
 
       - name: GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v1.0.$VERSION_CODE" app/build/outputs/apk/release/app-release.apk \
-            --title "Portland 1.0.$VERSION_CODE" --target "$GITHUB_SHA" --generate-notes
+          assets=("release-artifacts/app-release.apk")
+          if [ -f release-artifacts/mapping.txt ]; then
+            assets+=("release-artifacts/mapping.txt")
+          fi
+          gh release create "v$VERSION_NAME" "${assets[@]}" \
+            --title "Portland $VERSION_NAME" --target "$GITHUB_SHA" --generate-notes
+
+      - name: Write release summary
+        run: |
+          {
+            echo "### Published Portland $VERSION_NAME"
+            echo "- **versionCode:** \`$VERSION_CODE\`"
+            echo "- **SHA-256:** \`$APK_SHA256\`"
+            echo "- **R2 key:** \`releases/portland-$VERSION_CODE.apk\`"
+          } >> "$GITHUB_STEP_SUMMARY"

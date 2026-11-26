@@ -1,0 +1,52 @@
+version: 2
+updates:
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+      - "gradle"
+    groups:
+      androidx:
+        patterns:
+          - "androidx.*"
+        update-types:
+          - "minor"
+          - "patch"
+      media3:
+        patterns:
+          - "androidx.media3:*"
+      coil:
+        patterns:
+          - "io.coil-kt.coil3:*"
+      kotlin:
+        patterns:
+          - "org.jetbrains.kotlin.*"
+      patch-updates:
+        update-types:
+          - "patch"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci(deps)"
+    labels:
+      - "dependencies"
+      - "ci"
+    groups:
+      actions:
+        patterns:
+          - "*"

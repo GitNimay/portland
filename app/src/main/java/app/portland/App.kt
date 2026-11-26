@@ -29,6 +29,7 @@ class App : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         store = Store(this)
+        Reminders.warm(this) // reads the reminder prefs on a background thread before the UI asks for them
         // Warm ImageLoader / DiskCache / OkHttp off the main thread, and defer housekeeping until first frames settle.
         store.launch {
             withContext(Dispatchers.IO) {

@@ -3,6 +3,7 @@ package app.portland.data
 import app.portland.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.Dispatcher
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
@@ -44,6 +45,8 @@ object R2 {
      */
     val http: OkHttpClient by lazy {
         OkHttpClient.Builder()
+            // The grid and pager fire many thumbnail GETs at once; the default 5 per host would queue them.
+            .dispatcher(Dispatcher().apply { maxRequests = 64; maxRequestsPerHost = 16 })
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(5, TimeUnit.MINUTES)
             .writeTimeout(5, TimeUnit.MINUTES)
@@ -232,4 +235,7 @@ private fun sha256Hex(file: File): String {
 private fun hmac(key: ByteArray, data: String): ByteArray =
     Mac.getInstance("HmacSHA256").apply { init(SecretKeySpec(key, "HmacSHA256")) }.doFinal(data.toByteArray())
 
-private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
+private fun ByteArray.toHex(): String {
+    val hex = "0123456789abcdef"
+    return buildString(size * 2) { for (b in this@toHex) { append(hex[b.toInt() shr 4 and 15]); append(hex[b.toInt() and 15]) } }
+}

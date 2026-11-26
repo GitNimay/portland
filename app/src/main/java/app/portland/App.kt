@@ -9,8 +9,14 @@ import app.portland.data.Sync
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
+import coil3.disk.DiskCache
+import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
+import coil3.request.maxBitmapSize
+import coil3.size.Size
+import kotlinx.coroutines.delay
+import okio.Path.Companion.toOkioPath
 
 class App : Application(), SingletonImageLoader.Factory {
     lateinit var store: Store
@@ -19,15 +25,30 @@ class App : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         store = Store(this)
-        Sync.schedule(this) // pulls anything added from another install
-        Captions.schedule(this) // finishes descriptions interrupted by a process death
-        store.launch { indexColors() } // colour-tags pins saved before colour search existed
+        // Background housekeeping waits until the first frames are out, so it never competes with startup.
+        store.launch {
+            delay(STARTUP_GRACE_MS)
+            Sync.schedule(this@App) // pulls anything added from another install
+            Captions.schedule(this@App) // finishes descriptions interrupted by a process death
+            indexColors() // colour-tags pins saved before colour search existed
+        }
     }
 
+    // One loader for the masonry grid and the full-screen pager.
     override fun newImageLoader(context: PlatformContext) = ImageLoader.Builder(context)
         .components { add(OkHttpNetworkFetcherFactory(callFactory = { R2.http })) }
+        // Bounded decoded-bitmap cache: a share of the app's heap class, not of the whole device.
+        .memoryCache { MemoryCache.Builder().maxSizePercent(context, 0.2).build() }
+        // Explicit, so R2 downloads survive restarts without growing forever (the OS may still trim cacheDir).
+        .diskCache { DiskCache.Builder().directory(context.cacheDir.resolve("image_cache").toOkioPath()).maxSizeBytes(256L * 1024 * 1024).build() }
+        // Cap any single decode (default 4096²≈64 MB), well under Canvas's "too large bitmap" limit. Zoom uses tiles.
+        .maxBitmapSize(Size(3072, 3072))
         .crossfade(160)
         .build()
+
+    private companion object {
+        const val STARTUP_GRACE_MS = 1500L
+    }
 }
 
 val Context.store: Store get() = (applicationContext as App).store

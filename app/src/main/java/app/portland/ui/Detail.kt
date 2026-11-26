@@ -123,6 +123,10 @@ import androidx.compose.ui.unit.Dp
 import java.time.LocalDate
 import java.time.format.FormatStyle
 import kotlin.math.abs
+import kotlin.math.roundToInt
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.util.lerp
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
@@ -155,19 +159,26 @@ fun DetailScreen(ids: List<String>, start: Int) {
     val nav = LocalNav.current
     val haptics = LocalHapticFeedback.current
     val lib by store.library.collectAsStateWithLifecycle()
+    val wanted = remember(ids) { ids.toHashSet() }
     val pins = remember(ids, lib.pins) {
-        val byId = lib.pins.associateBy { it.id }
+        val byId = HashMap<String, Pin>(wanted.size * 2)
+        for (pin in lib.pins) if (pin.id in wanted) byId[pin.id] = pin
         ids.mapNotNull(byId::get)
     }
+    // Leaving happens once: a back tap, a committed pull and an empty list must never pop twice (that would close the screen below too).
+    var left by remember { mutableStateOf(false) }
+    val leave: () -> Unit = { if (!left) { left = true; nav.pop() } }
 
     if (pins.isEmpty()) {
-        LaunchedEffect(ids) { nav.pop() }
+        LaunchedEffect(ids) { leave() }
         Box(Modifier.fillMaxSize().background(p.canvas))
         return
     }
 
     val pager = rememberPagerState(initialPage = start.coerceIn(0, pins.lastIndex)) { pins.size }
     LaunchedEffect(pins.size) { if (pager.currentPage > pins.lastIndex) pager.scrollToPage(pins.lastIndex) }
+    // One player for the whole viewer (swapped between videos), not one built and released per page.
+    val player = if (pins.any { it.video }) rememberViewerPlayer() else null
     val current = pins.getOrNull(pager.currentPage) ?: pins.first()
     val boardName = lib.boards.firstOrNull { it.id == current.boardId }?.name
     var details by remember { mutableStateOf<DetailsOpen?>(null) }
@@ -175,7 +186,7 @@ fun DetailScreen(ids: List<String>, start: Int) {
     var confirm by remember { mutableStateOf(false) }
     val backdrop = rememberLayerBackdrop { drawRect(p.canvas); drawContent() }
     // A committed pull pops straight away: the shared-element transition carries the media home from where it was let go.
-    val swipe = rememberMediaSwipe { nav.pop() }
+    val swipe = rememberMediaSwipe { leave() }
     val chrome = Modifier.graphicsLayer { alpha = 1f - swipe.dismissProgress }
     // The bottom bar and filmstrip give way to the send dock as it rises into their place.
     val underDock = Modifier.graphicsLayer { alpha = (1f - swipe.dismissProgress) * (1f - swipe.sendProgress) }
@@ -189,9 +200,9 @@ fun DetailScreen(ids: List<String>, start: Int) {
             beyondViewportPageCount = 1,
             pageSpacing = 16.dp,
             userScrollEnabled = !swipe.shelfOpen,
-            key = { pins[it].id },
+            key = { pins.getOrNull(it)?.id ?: it },
         ) { page ->
-            val pin = pins[page]
+            val pin = pins.getOrNull(page) ?: return@HorizontalPager
             // The whole stage takes the vertical swipes, not just the media, so a pull from anywhere closes.
             Box(
                 Modifier
@@ -203,7 +214,7 @@ fun DetailScreen(ids: List<String>, start: Int) {
                     .padding(horizontal = 16.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                MediaBox(pin, active = pager.settledPage == page, swipe)
+                MediaBox(pin, active = pager.settledPage == page, swipe, player)
             }
         }
 
@@ -212,7 +223,7 @@ fun DetailScreen(ids: List<String>, start: Int) {
             chrome.fillMaxWidth().statusBarsPadding().height(TopBarHeight).padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconBtn(R.drawable.ic_back, "Back", backdrop = backdrop) { nav.pop() }
+            IconBtn(R.drawable.ic_back, "Back", backdrop = backdrop) { leave() }
             Spacer(Modifier.width(12.dp))
             AnimatedContent(
                 targetState = current.createdAt to boardName,
@@ -332,6 +343,7 @@ private fun BarAction(@DrawableRes icon: Int, label: String, onClick: () -> Unit
 
 private val FrameWidth = 30.dp // a filmstrip frame that is not the current pin
 private val FrameGap = 3.dp
+private val FrameMargin = 5.dp // either side of the current frame
 
 /**
  * The other pins as a strip of narrow frames, the current one opened up to its own shape and kept centred.
@@ -346,8 +358,8 @@ private fun Filmstrip(pins: List<Pin>, pager: PagerState) {
     val scope = rememberCoroutineScope()
     // Opens already centred on the current pin, rather than sliding there.
     val strip = rememberLazyListState(
-        initialFirstVisibleItemIndex = pager.currentPage,
-        initialFirstVisibleItemScrollOffset = with(density) { (frameWidth(pins[pager.currentPage]) / 2).roundToPx() },
+        initialFirstVisibleItemIndex = pager.currentPage.coerceIn(0, pins.lastIndex),
+        initialFirstVisibleItemScrollOffset = with(density) { (frameWidth(pins[pager.currentPage.coerceIn(0, pins.lastIndex)]) / 2).roundToPx() },
     )
     val dragged by strip.interactionSource.collectIsDraggedAsState()
     // From the first drag until the strip comes to rest (fling included), the strip leads and the pager follows.
@@ -386,14 +398,22 @@ private fun Filmstrip(pins: List<Pin>, pager: PagerState) {
         ) {
             itemsIndexed(pins, key = { _, pin -> pin.id }, contentType = { _, _ -> "frame" }) { i, pin ->
                 val selected = i == page
-                val width by animateDpAsState(if (selected) frameWidth(pin) else FrameWidth, Motion.snappy(), label = "frame")
-                // The current frame stands a little apart from its neighbours, like a lens over the strip.
-                val margin by animateDpAsState(if (selected) 5.dp else 0.dp, Motion.snappy(), label = "margin")
+                // 0 = a narrow frame, 1 = opened up to the pin's shape and standing a little apart, like a lens.
+                val open by animateFloatAsState(if (selected) 1f else 0f, Motion.snappy(), label = "frame")
+                val wide = frameWidth(pin)
                 Box(
                     Modifier
-                        .padding(horizontal = margin)
-                        .width(width)
-                        .fillMaxHeight()
+                        // Read in layout, so a swipe re-lays out two frames instead of recomposing them every frame.
+                        // The spring overshoots past 0 and 1: the margin is clamped (a negative padding throws) and
+                        // the width kept positive.
+                        .layout { m, c ->
+                            val t = open
+                            val margin = (FrameMargin.toPx() * t).coerceAtLeast(0f).roundToInt()
+                            val w = lerp(FrameWidth.toPx(), wide.toPx(), t).roundToInt().coerceAtLeast(1)
+                            val h = c.maxHeight
+                            val placeable = m.measure(Constraints.fixed(w, h))
+                            layout(w + 2 * margin, h) { placeable.place(margin, 0) }
+                        }
                         .clip(Corners.frame)
                         .background(p.fill)
                         .clickable(onClickLabel = "Show pin ${i + 1} of ${pins.size}") {
@@ -547,7 +567,7 @@ private fun DetailsSheet(pin: Pin, boardName: String?, focusNote: Boolean, onBoa
  */
 @kotlin.OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-private fun MediaBox(pin: Pin, active: Boolean, swipe: MediaSwipe) {
+private fun MediaBox(pin: Pin, active: Boolean, swipe: MediaSwipe, player: ExoPlayer?) {
     val p = LocalPalette.current
     val store = LocalContext.current.store
     val thumbModel = remember(pin.id) { store.thumb(pin) }
@@ -556,7 +576,9 @@ private fun MediaBox(pin: Pin, active: Boolean, swipe: MediaSwipe) {
     var zoom by remember(pin.id) { mutableStateOf(false) }
     var loaded by remember(pin.id) { mutableStateOf(false) }
     val ratio = if (pin.w > 0 && pin.h > 0) (pin.w.toFloat() / pin.h).coerceIn(0.05f, 20f) else 1f
-    val shared = rememberSharedPin(pin.id)
+    // Only the settled page takes part in the shared-element transition: neighbour pages composed inside the pager
+    // would register elements under grid keys and place/attach mid-swipe, a known crash source.
+    val shared = rememberSharedPin(pin.id).takeIf { active }
     DisposableEffect(swipe, pin.id, shared) {
         swipe.handoffs[pin.id] = { velocity -> shared?.prepareTransitionWithInitialVelocity(velocity) }
         onDispose { swipe.handoffs.remove(pin.id) }
@@ -565,7 +587,7 @@ private fun MediaBox(pin: Pin, active: Boolean, swipe: MediaSwipe) {
     Box(
         Modifier
             // Placement, not a layer transform: the shared element reads layout, so a pulled pin flies home from where it is.
-            .offset { swipe.mediaOffset(pin.id).round() }
+            .offset { swipe.mediaOffset(pin.id).safeRound() }
             .sharedPin(shared)
             // Fits the stage both ways: full width for wide media, full height for tall.
             .aspectRatio(ratio)
@@ -583,7 +605,7 @@ private fun MediaBox(pin: Pin, active: Boolean, swipe: MediaSwipe) {
             modifier = Modifier.matchParentSize(),
         )
         if (pin.video) {
-            VideoLayer(pin, active, Modifier.matchParentSize())
+            if (player != null) VideoLayer(pin, active, player, Modifier.matchParentSize())
         } else {
             AsyncImage(
                 model = fullModel,
@@ -644,7 +666,7 @@ private fun ZoomDialog(pin: Pin, model: Any, description: String?, onClose: () -
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
                     .fillMaxSize()
-                    .offset { swipe.mediaOffset(pin.id).round() }
+                    .offset { swipe.mediaOffset(pin.id).safeRound() }
                     .graphicsLayer { val s = swipe.mediaScale(pin.id); scaleX = s; scaleY = s }
                     .layerBackdrop(backdrop),
             )
@@ -673,12 +695,30 @@ private const val SeekWindowMs = 700L // taps this soon after a seek keep adding
 private const val HideAfterMs = 2_500L
 private val ScrubPad = 16.dp // inset of the track from the video's edges
 
+/** The viewer's one player, shared by whichever video page is settled; released with the viewer, paused when the app leaves the foreground. */
 @OptIn(UnstableApi::class)
 @Composable
-private fun VideoLayer(pin: Pin, active: Boolean, modifier: Modifier = Modifier) {
+private fun rememberViewerPlayer(): ExoPlayer {
     val context = LocalContext.current
-    val store = context.store
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val exo = remember { ExoPlayer.Builder(context).build().apply { repeatMode = Player.REPEAT_MODE_ONE } }
+    DisposableEffect(exo, lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) exo.pause()
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+            exo.release()
+        }
+    }
+    return exo
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+private fun VideoLayer(pin: Pin, active: Boolean, player: ExoPlayer, modifier: Modifier = Modifier) {
+    val store = LocalContext.current.store
     val haptics = LocalHapticFeedback.current
     val holder = remember(pin.id) { mutableStateOf<ExoPlayer?>(null) }
     var playing by remember(pin.id) { mutableStateOf(true) }
@@ -697,7 +737,7 @@ private fun VideoLayer(pin: Pin, active: Boolean, modifier: Modifier = Modifier)
 
     DisposableEffect(pin.id, active) {
         if (!active) return@DisposableEffect onDispose {}
-        val exo = ExoPlayer.Builder(context).build()
+        val exo = player
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 playing = isPlaying
@@ -707,8 +747,8 @@ private fun VideoLayer(pin: Pin, active: Boolean, modifier: Modifier = Modifier)
                 if (playbackState == Player.STATE_READY) duration = exo.duration.coerceAtLeast(0L)
             }
         }
+        playing = true
         exo.addListener(listener)
-        exo.repeatMode = Player.REPEAT_MODE_ONE
         exo.playWhenReady = true
         val file = store.mediaFile(pin)
         if (file.exists()) {
@@ -721,20 +761,17 @@ private fun VideoLayer(pin: Pin, active: Boolean, modifier: Modifier = Modifier)
         }
         exo.prepare()
         holder.value = exo
-
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_PAUSE) exo.pause()
-        }
-        lifecycle.addObserver(observer)
         onDispose {
-            lifecycle.removeObserver(observer)
+            // The surface leaves composition with this page; hand the player back empty for the next video.
             holder.value = null
-            exo.release()
+            exo.removeListener(listener)
+            exo.stop()
+            exo.clearMediaItems()
         }
     }
 
     val exo = holder.value
-    // Per-frame position while it is moving by itself; a drag or seek writes it directly.
+    // Per-frame position while it is moving by itself (read only at draw time, so it redraws, never recomposes).
     LaunchedEffect(exo, playing, scrubbing) {
         if (exo == null) return@LaunchedEffect
         position = exo.currentPosition

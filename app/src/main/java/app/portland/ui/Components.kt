@@ -73,8 +73,6 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -256,7 +254,6 @@ fun PinCard(
     val press = remember { MutableInteractionSource() }
     val pressed by press.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) 0.96f else 1f, Motion.press(), label = "press")
-    val badgeBackdrop = if (pin.video) rememberLayerBackdrop() else null
     // A picked pin sinks into its slot, like a pressed key that stays down.
     val inset by animateFloatAsState(
         if (selected) 0.9f else 1f,
@@ -296,14 +293,16 @@ fun PinCard(
                     contentDescription = pin.note.ifBlank { null },
                     contentScale = ContentScale.Crop,
                     onState = { loaded = it is AsyncImagePainter.State.Success || it is AsyncImagePainter.State.Error },
-                    modifier = Modifier.matchParentSize().then(if (badgeBackdrop != null) Modifier.layerBackdrop(badgeBackdrop) else Modifier),
+                    modifier = Modifier.matchParentSize(),
                 )
                 if (pin.video) {
                     Row(
                         Modifier
                             .align(Alignment.BottomStart)
                             .padding(8.dp)
-                            .glass(badgeBackdrop, Corners.pill, tint = Color.Black.copy(alpha = 0.22f))
+                            // Plain translucent pill: a backdrop layer + lens shader per video card is too costly in a scrolling grid.
+                            .clip(Corners.pill)
+                            .background(Color.Black.copy(alpha = 0.38f))
                             .padding(horizontal = 8.dp, vertical = 3.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {

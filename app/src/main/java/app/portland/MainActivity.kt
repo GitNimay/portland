@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -64,6 +65,14 @@ class MainActivity : ComponentActivity() {
 
     /** "Share to Portland" from any app. */
     private fun saveShared(intent: Intent) {
+        try {
+            handleShared(intent)
+        } catch (e: RuntimeException) { // a malformed share from another app (bad parcelable, revoked URI) must not kill us
+            Log.w("Main", "share ignored", e)
+        }
+    }
+
+    private fun handleShared(intent: Intent) {
         if (intent.action == Intent.ACTION_SEND && intent.type == "text/plain") {
             val url = intent.getStringExtra(Intent.EXTRA_TEXT)?.let(Links::find)
             if (url != null) Links.enqueue(this, url, null)

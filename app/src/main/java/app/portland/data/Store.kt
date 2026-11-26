@@ -9,6 +9,7 @@ import android.net.Uri
 import android.util.AtomicFile
 import android.util.Log
 import android.webkit.MimeTypeMap
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -57,8 +58,13 @@ class Store(private val app: Context) {
     fun thumbFile(p: Pin) = File(thumbDir, "${p.id}.webp")
 
     /** Image/video model for Coil or ExoPlayer: the local file when present, else the R2 object URL. */
-    fun media(p: Pin): Any = mediaFile(p).takeIf { it.exists() } ?: R2.url(p.mediaKey)
-    fun thumb(p: Pin): Any = thumbFile(p).takeIf { it.exists() } ?: R2.url(p.thumbKey)
+    fun media(p: Pin): Any = models.getOrPut("m${p.id}") { mediaFile(p).takeIf { it.exists() } ?: R2.url(p.mediaKey) }
+    fun thumb(p: Pin): Any = models.getOrPut("t${p.id}") { thumbFile(p).takeIf { it.exists() } ?: R2.url(p.thumbKey) }
+
+    // The UI asks for these on every composition; checking the disk each time is main-thread IO. A pin's files
+    // only change when it is created (before it is listed) or deleted, and both paths reset its entries.
+    private val models = java.util.concurrent.ConcurrentHashMap<String, Any>()
+    private fun forget(id: String) { models.remove("m$id"); models.remove("t$id") }
 
     /** Applies [change] atomically, persists it and, unless [sync] is false, schedules a sync. */
     suspend fun update(sync: Boolean = true, change: (Library) -> Library) {
@@ -66,7 +72,8 @@ class Store(private val app: Context) {
             val next = change(state.value)
             if (next == state.value) return@withLock false
             state.value = next
-            withContext(Dispatchers.IO) { save(next) }
+            // A full disk must not kill the caller; the change stays in memory and the next save retries.
+            withContext(Dispatchers.IO) { runCatching { save(next) }.onFailure { if (it is CancellationException) throw it; Log.e("Store", "save failed", it) } }
             true
         }
         if (changed && sync) Sync.schedule(app)
@@ -118,6 +125,7 @@ class Store(private val app: Context) {
                 purge = lib.purge + gone.filter { it.synced }.flatMap { listOf(it.mediaKey, it.thumbKey) },
             )
         }
+        gone.forEach { forget(it.id) }
         withContext(Dispatchers.IO) { gone.forEach { mediaFile(it).delete(); thumbFile(it).delete() } }
     }
 
@@ -147,7 +155,7 @@ class Store(private val app: Context) {
     }.getOrElse {
         // Keep the unreadable file for inspection rather than overwriting it on the next save.
         Log.e("Store", "library.json unreadable, starting empty", it)
-        file.baseFile.copyTo(File(app.filesDir, "library.broken.json"), overwrite = true)
+        runCatching { file.baseFile.copyTo(File(app.filesDir, "library.broken.json"), overwrite = true) }
         Library()
     }
 
@@ -240,7 +248,7 @@ class Store(private val app: Context) {
             val pin = Pin(id, video, ext, w, h, duration, boardId = boardId, createdAt = createdAt, colors = colorsOf(thumb))
             thumb.recycle()
             return pin
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             media.delete()
             thumbFile.delete()
             throw e
@@ -258,6 +266,7 @@ class Store(private val app: Context) {
     /** Removes the local files of pins that are no longer in the library (deleted on another install). */
     suspend fun dropFiles(ids: Collection<String>) = withContext(Dispatchers.IO) {
         if (ids.isEmpty()) return@withContext
+        ids.forEach(::forget)
         (mediaDir.listFiles().orEmpty().asList() + thumbDir.listFiles().orEmpty())
             .filter { it.nameWithoutExtension in ids }
             .forEach { it.delete() }

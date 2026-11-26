@@ -28,7 +28,9 @@ import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.unit.round
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -146,6 +148,7 @@ class MediaSwipe internal constructor(
     }
 
     internal fun dragBy(delta: Offset) {
+        if (!delta.x.isFinite() || !delta.y.isFinite()) return
         when (mode) {
             SwipeMode.Dismiss -> pull += delta
             SwipeMode.Send -> lift = (lift - delta.y).coerceAtLeast(0f)
@@ -157,9 +160,12 @@ class MediaSwipe internal constructor(
         armed = now
     }
 
-    internal fun release(velocity: Velocity) {
+    /** [lifted]: the finger really let go. Otherwise the gesture was taken away (or its node left) and must never commit a close. */
+    internal fun release(rawVelocity: Velocity, lifted: Boolean = true) {
+        // A NaN/Infinity velocity would poison the springs and crash Offset.round() in a placement lambda.
+        val velocity = if (lifted && rawVelocity.x.isFinite() && rawVelocity.y.isFinite()) rawVelocity else Velocity.Zero
         when (mode) {
-            SwipeMode.Dismiss -> if (committing(velocity)) {
+            SwipeMode.Dismiss -> if (lifted && committing(velocity)) {
                 dismissing = true
                 if (flyOutPx > 0f) {
                     flyOut(velocity)
@@ -378,9 +384,13 @@ private suspend fun AwaitPointerEventScope.trackDrag(pointer: PointerId, swipe: 
         }
     } finally {
         // Also runs if the node leaves mid-drag, so nothing is ever left hanging half-way.
-        swipe.release(if (lifted) tracker.calculateVelocity() else Velocity.Zero)
+        // Only a real lift may commit; a node that left mid-drag just settles back.
+        swipe.release(if (lifted) tracker.calculateVelocity() else Velocity.Zero, lifted)
     }
 }
+
+/** [Offset.round] throws on NaN/Infinity; a bad frame of spring or velocity math must not crash the app. */
+internal fun Offset.safeRound(): IntOffset = if (x.isFinite() && y.isFinite()) round() else IntOffset.Zero
 
 /** iOS-style resistance: 1:1 at first, approaching [limit] however far [x] goes. */
 fun rubber(x: Float, limit: Float): Float = if (x <= 0f) 0f else limit * x / (x + limit)

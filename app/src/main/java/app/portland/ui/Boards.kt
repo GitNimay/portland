@@ -92,7 +92,6 @@ fun BoardsGrid(
     state: LazyStaggeredGridState = rememberLazyStaggeredGridState(),
     header: @Composable () -> Unit,
 ) {
-    val p = LocalPalette.current
     val store = LocalContext.current.store
     val nav = LocalNav.current
     var naming by remember { mutableStateOf(false) }
@@ -213,6 +212,8 @@ fun BoardScreen(id: String) {
     val lib by store.library.collectAsStateWithLifecycle()
     val board = lib.boards.find { it.id == id }
     val pins = remember(lib.pins, id) { lib.pins.filter { it.boardId == id } }
+    val openPin = rememberOpenPin(pins)
+    val bottomFade = remember(p.canvas) { Brush.verticalGradient(0f to p.canvas.copy(alpha = 0f), 1f to p.canvas.copy(alpha = 0.85f)) }
     var menu by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var confirming by remember { mutableStateOf(false) }
@@ -237,7 +238,7 @@ fun BoardScreen(id: String) {
     Box(Modifier.fillMaxSize().background(p.canvas)) {
         PinGrid(
             pins = pins,
-            onOpen = { i -> nav.push(Screen.Detail(pins.map { it.id }, i)) },
+            onOpen = openPin,
             modifier = Modifier.fillMaxSize().layerBackdrop(backdrop),
             selection = selection,
             loading = importing,
@@ -346,12 +347,7 @@ fun BoardScreen(id: String) {
             Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        0f to p.canvas.copy(alpha = 0f),
-                        1f to p.canvas.copy(alpha = 0.85f),
-                    ),
-                )
+                .background(bottomFade)
                 .navigationBarsPadding()
                 .height(72.dp),
         )

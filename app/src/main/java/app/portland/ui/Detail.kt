@@ -101,7 +101,6 @@ import androidx.media3.ui.compose.PlayerSurface
 import androidx.media3.ui.compose.SURFACE_TYPE_TEXTURE_VIEW
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -111,7 +110,6 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -589,7 +587,7 @@ private fun DetailsSheet(pin: Pin, boardName: String?, focusNote: Boolean, onBoa
 private fun MediaBox(pin: Pin, active: Boolean, swipe: MediaSwipe, player: ExoPlayer?) {
     val p = LocalPalette.current
     val store = LocalContext.current.store
-    val thumbModel = remember(pin.id) { store.thumb(pin) }
+    val thumbRequest = rememberViewerThumb(pin.id, remember(pin.id) { store.thumb(pin) })
     val fullModel = remember(pin.id) { store.media(pin) }
     val desc = pin.note.ifBlank { null }
     var zoom by remember(pin.id) { mutableStateOf(false) }
@@ -617,7 +615,7 @@ private fun MediaBox(pin: Pin, active: Boolean, swipe: MediaSwipe, player: ExoPl
     ) {
         // The thumbnail shows instantly and stays under the video until frames arrive.
         AsyncImage(
-            model = thumbModel,
+            model = thumbRequest,
             contentDescription = null,
             contentScale = ContentScale.Fit,
             onState = { if (it is AsyncImagePainter.State.Success || it is AsyncImagePainter.State.Error) loaded = true },
@@ -714,6 +712,7 @@ private const val SeekStepMs = 10_000L
 private const val SeekWindowMs = 700L // taps this soon after a seek keep adding to it
 private const val HideAfterMs = 2_500L
 private val ScrubPad = 16.dp // inset of the track from the video's edges
+private val ControlsScrim = Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.35f)))
 
 /** The viewer's one player, shared by whichever video page is settled; released with the viewer, paused when the app leaves the foreground. */
 @OptIn(UnstableApi::class)
@@ -899,7 +898,7 @@ private fun VideoLayer(pin: Pin, active: Boolean, player: ExoPlayer, modifier: M
                 Box(
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(88.dp)
                         .graphicsLayer { alpha = controls }
-                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.35f)))),
+                        .background(ControlsScrim),
                 )
                 Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()) {
                     Row(

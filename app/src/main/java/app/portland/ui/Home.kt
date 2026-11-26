@@ -11,7 +11,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -48,6 +47,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -98,7 +98,6 @@ import kotlin.math.roundToInt
 fun HomeScreen() {
     val p = LocalPalette.current
     val store = LocalContext.current.store
-    val nav = LocalNav.current
     val lib by store.library.collectAsStateWithLifecycle()
     val importing by store.importing.collectAsStateWithLifecycle()
     val update by Updater.ready.collectAsStateWithLifecycle()
@@ -130,6 +129,7 @@ fun HomeScreen() {
     val haptics = LocalHapticFeedback.current
 
     val pins = remember(lib.pins, lib.boards, query) { lib.search(query.orEmpty()) }
+    val openPin = rememberOpenPin(pins)
 
     // Pins and Boards side by side: swipe between them, or tap the segmented control. Search shows pins only.
     val pager = rememberPagerState(initialPage = tab) { 2 }
@@ -204,6 +204,7 @@ fun HomeScreen() {
     val progress = { if (largeHeight == 0) 0f else (shift() / largeHeight).coerceAtMost(1f) }
 
     val edgeBottom = with(density) { 12.dp.roundToPx() }
+    val bottomFade = remember(p.canvas) { Brush.verticalGradient(0f to p.canvas.copy(alpha = 0f), 1f to p.canvas.copy(alpha = 0.85f)) }
 
     Box(Modifier.fillMaxSize().background(p.canvas)) {
         // One backdrop over the pager, not one per grid: mid-swipe the glass sees both sections.
@@ -225,7 +226,7 @@ fun HomeScreen() {
             } else {
                 PinGrid(
                     pins = pins,
-                    onOpen = { i -> nav.push(Screen.Detail(pins.map { it.id }, i)) },
+                    onOpen = openPin,
                     modifier = Modifier.fillMaxSize(),
                     selection = selection,
                     loading = if (query == null) importing else 0,
@@ -285,7 +286,7 @@ fun HomeScreen() {
             Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .background(Brush.verticalGradient(0f to p.canvas.copy(alpha = 0f), 1f to p.canvas.copy(alpha = 0.85f)))
+                .background(bottomFade)
                 .navigationBarsPadding()
                 .height(72.dp),
         )
@@ -323,6 +324,8 @@ private fun Header(
 ) {
     val p = LocalPalette.current
     val haptics = LocalHapticFeedback.current
+    // The scroll drives the fade per frame inside graphicsLayer; composition only hears when the button appears or goes.
+    val settingsVisible by remember(progress) { derivedStateOf { settingsAlpha(progress()) > 0.02f } }
     Column(modifier.onSizeChanged { onHeaderHeight(it.height) }.statusBarsPadding()) {
         // Keeps the typed text on the field while it fades out after closing.
         var lastQuery by remember { mutableStateOf("") }
@@ -344,12 +347,11 @@ private fun Header(
                 if (!searching) {
                     // No collapsed title: the Pins/Boards control docks on this side once scrolled.
                     Spacer(Modifier.weight(1f))
-                    val settingsAlpha = (1f - progress() * 1.6f).coerceIn(0f, 1f)
-                    if (settingsAlpha > 0.02f) {
+                    if (settingsVisible) {
                         IconBtn(
                             R.drawable.ic_settings,
                             "Settings",
-                            modifier = Modifier.graphicsLayer { alpha = settingsAlpha },
+                            modifier = Modifier.graphicsLayer { alpha = settingsAlpha(progress()) },
                             backdrop = backdrop,
                             onClick = onSettings,
                         )
@@ -488,6 +490,9 @@ private fun Header(
         }
     }
 }
+
+/** The settings button fades out a little faster than the large title scrolls away. */
+private fun settingsAlpha(progress: Float) = (1f - progress * 1.6f).coerceIn(0f, 1f)
 
 private fun status(lib: Library, importing: Int): String {
     val n = lib.pins.size

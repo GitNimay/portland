@@ -37,7 +37,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -59,6 +58,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -84,6 +84,7 @@ import app.portland.data.sharedBoard
 import app.portland.store
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
+import coil3.request.ImageRequest
 
 val CardShape = Corners.card
 val GridGutter = 16.dp
@@ -172,6 +173,43 @@ class PinSelection {
 @Composable
 fun rememberPinSelection() = remember { PinSelection() }
 
+/**
+ * Opens the viewer over [pins] at the tapped index. The same function instance survives library changes (it
+ * reads the newest list when called), so a caption arriving for one pin does not hand every visible card a new
+ * click lambda and recompose the whole feed.
+ */
+@Composable
+fun rememberOpenPin(pins: List<Pin>): (Int) -> Unit {
+    val nav = LocalNav.current
+    val latest by rememberUpdatedState(pins)
+    return remember(nav) { { i -> nav.push(Screen.Detail(latest.map { it.id }, i)) } }
+}
+
+/**
+ * Memory-cache key shared by a pin's grid card and the viewer's media, so the viewer can show the card's
+ * already-decoded thumbnail the instant a shared-element transition starts (the guidance for Coil + shared elements).
+ */
+private fun thumbCacheKey(id: String) = "pin-thumb:$id"
+
+/** The grid card's thumbnail request: [model] under the shared [thumbCacheKey]. */
+@Composable
+internal fun rememberCardThumb(id: String, model: Any): ImageRequest {
+    val context = LocalContext.current
+    return remember(id) { ImageRequest.Builder(context).data(model).memoryCacheKey(thumbCacheKey(id)).build() }
+}
+
+/** The viewer's thumbnail request: starts from whatever the grid card already decoded, then loads at stage size. */
+@Composable
+internal fun rememberViewerThumb(id: String, model: Any): ImageRequest {
+    val context = LocalContext.current
+    return remember(id) {
+        ImageRequest.Builder(context).data(model)
+            .memoryCacheKey(thumbCacheKey(id))
+            .placeholderMemoryCacheKey(thumbCacheKey(id))
+            .build()
+    }
+}
+
 // Placeholder shapes for pins still being copied in; a mix so they read as a masonry, not a table.
 private val SkeletonRatios = floatArrayOf(0.8f, 1.25f, 1f, 0.7f)
 
@@ -249,7 +287,7 @@ fun PinCard(
 ) {
     val p = LocalPalette.current
     val store = LocalContext.current.store
-    val model = remember(pin.id) { store.thumb(pin) }
+    val request = rememberCardThumb(pin.id, remember(pin.id) { store.thumb(pin) })
     var loaded by remember(pin.id) { mutableStateOf(false) }
     val press = remember { MutableInteractionSource() }
     val pressed by press.collectIsPressedAsState()
@@ -289,7 +327,7 @@ fun PinCard(
                     .then(if (loaded) Modifier else Modifier.shimmer(p.shimmer)),
             ) {
                 AsyncImage(
-                    model = model,
+                    model = request,
                     contentDescription = pin.note.ifBlank { null },
                     contentScale = ContentScale.Crop,
                     onState = { loaded = it is AsyncImagePainter.State.Success || it is AsyncImagePainter.State.Error },
@@ -308,7 +346,8 @@ fun PinCard(
                     ) {
                         Icon(painterResource(R.drawable.ic_play), contentDescription = "Video", tint = Color.White, modifier = Modifier.size(IconSize.inline))
                         Spacer(Modifier.width(4.dp))
-                        Text(formatDuration(pin.durationMs), style = Type.footnote.copy(fontWeight = FontWeight.Medium).digits(), color = Color.White)
+                        val duration = remember(pin.durationMs) { formatDuration(pin.durationMs) }
+                        Text(duration, style = VideoBadgeStyle, color = Color.White)
                     }
                 }
             }
@@ -340,6 +379,8 @@ fun PinCard(
         }
     }
 }
+
+private val VideoBadgeStyle = Type.footnote.copy(fontWeight = FontWeight.Medium).digits()
 
 // The description usually lands within seconds; past this, stop promising one (e.g. offline).
 private const val DESCRIBING_MS = 2 * 60_000L

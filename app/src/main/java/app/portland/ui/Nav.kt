@@ -41,7 +41,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.preferredFrameRate
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.portland.store
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -137,16 +136,18 @@ fun Modifier.sharedPin(state: SharedTransitionScope.SharedContentState?): Modifi
 fun AppRoot(openPinId: String? = null, onPinOpened: () -> Unit = {}) {
     val p = LocalPalette.current
     val store = LocalContext.current.store
-    val lib by store.library.collectAsStateWithLifecycle()
     val saved = rememberSaveableStateHolder()
     val nav = remember { Nav(saved) }
     val scope = rememberCoroutineScope()
     val back = remember { BackPreview() }
 
-    LaunchedEffect(openPinId, lib.pins) {
+    // Looked up once per request, not observed: the library changes constantly (captions, colours, sync) and
+    // observing it here recomposed the whole nav host each time.
+    LaunchedEffect(openPinId) {
         val targetId = openPinId ?: return@LaunchedEffect
-        val index = lib.pins.indexOfFirst { it.id == targetId }
-        if (index >= 0) nav.openDetail(lib.pins.map { it.id }, index)
+        val pins = store.library.value.pins
+        val index = pins.indexOfFirst { it.id == targetId }
+        if (index >= 0) nav.openDetail(pins.map { it.id }, index)
         onPinOpened()
     }
     // Predictive back: the screen shrinks and follows the finger; letting go goes back, pulling away springs it home.

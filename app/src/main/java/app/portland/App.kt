@@ -15,7 +15,9 @@ import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
 import coil3.request.maxBitmapSize
 import coil3.size.Size
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import okio.Path.Companion.toOkioPath
 
 class App : Application(), SingletonImageLoader.Factory {
@@ -25,8 +27,9 @@ class App : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         store = Store(this)
-        // Background housekeeping waits until the first frames are out, so it never competes with startup.
+        // Warm ImageLoader / DiskCache / OkHttp off the main thread, and defer housekeeping until first frames settle.
         store.launch {
+            withContext(Dispatchers.IO) { SingletonImageLoader.get(this@App) }
             delay(STARTUP_GRACE_MS)
             Sync.schedule(this@App) // pulls anything added from another install
             Captions.schedule(this@App) // finishes descriptions interrupted by a process death

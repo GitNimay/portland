@@ -20,9 +20,11 @@ object Colors {
     /** "Blue", "grey", "golden" -> the stored name; null when [word] is not a colour. */
     fun canonical(word: String): String? = word.lowercase().let { if (it in names) it else aliases[it] }
 
+    private val WS_REGEX = Regex("\\s+")
+
     /** Colour names a query asks for, or null when any word in it is not a colour ("blue car" is a text search). */
     fun query(q: String): Set<String>? {
-        val words = q.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val words = q.trim().split(WS_REGEX).filter { it.isNotEmpty() }
         if (words.isEmpty()) return null
         return words.map { canonical(it) ?: return null }.toSet()
     }

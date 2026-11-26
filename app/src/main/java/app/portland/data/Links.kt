@@ -11,7 +11,9 @@ import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import androidx.work.WorkQuery
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import app.portland.App
@@ -38,7 +40,7 @@ object Links {
 
     /** The first http(s) URL in [text] (shared text often wraps the link in a sentence), or null. */
     fun find(text: String): String? =
-        Regex("""https?://[^\s<>"']+""").find(text)?.value?.trimEnd('.', ',', ')', ']')?.takeIf { it.toHttpUrlOrNull() != null }
+        URL_REGEX.find(text)?.value?.trimEnd('.', ',', ')', ']')?.takeIf { it.toHttpUrlOrNull() != null }
 
     fun enqueue(context: Context, url: String, boardId: String?) {
         val work = OneTimeWorkRequestBuilder<LinkWorker>()
@@ -52,7 +54,11 @@ object Links {
 
     /** Links still waiting or downloading. Lives in WorkManager, so it survives the app being closed. */
     fun pending(context: Context): Flow<Int> =
-        WorkManager.getInstance(context).getWorkInfosByTagFlow(TAG).map { list -> list.count { !it.state.isFinished } }
+        WorkManager.getInstance(context).getWorkInfosFlow(
+            WorkQuery.Builder.fromTags(listOf(TAG))
+                .addStates(listOf(WorkInfo.State.ENQUEUED, WorkInfo.State.RUNNING, WorkInfo.State.BLOCKED))
+                .build(),
+        ).map { it.size }
 
     /**
      * Downloads the media behind [url] into [dir] (a folder of its own, kept across retries so a long video
@@ -113,9 +119,23 @@ object Links {
     }
 
     private fun save(r: Response, mime: String, dir: File): Pair<File, String> {
+        val length = r.body.contentLength()
+        if (length > MAX_MEDIA_BYTES) throw IOException("media too large ($length bytes)")
         val f = File.createTempFile("link", null, dir)
         try {
-            r.body.byteStream().use { i -> f.outputStream().use { i.copyTo(it) } }
+            r.body.byteStream().use { input ->
+                f.outputStream().buffered().use { output ->
+                    val buf = ByteArray(64 * 1024)
+                    var total = 0L
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n <= 0) break
+                        total += n
+                        if (total > MAX_MEDIA_BYTES) throw IOException("media exceeded $MAX_MEDIA_BYTES bytes")
+                        output.write(buf, 0, n)
+                    }
+                }
+            }
         } catch (e: Exception) {
             f.delete()
             throw e
@@ -126,7 +146,14 @@ object Links {
     class NoMedia : Exception("no image or video at that link")
 
     private const val MAX_PAGE = 2L * 1024 * 1024
+    private const val MAX_MEDIA_BYTES = 512L * 1024 * 1024
+    private val URL_REGEX = Regex("""https?://[^\s<>"']+""")
 }
+
+private val META_TAG_REGEX = Regex("""<meta\s[^>]*>""", RegexOption.IGNORE_CASE)
+private val ATTR_REGEX = Regex("""([\w:-]+)\s*=\s*("([^"]*)"|'([^']*)')""")
+private val SOURCE_REGEX = Regex("""<(?:video|source)\s[^>]*\bsrc\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+private val ENTITY_REGEX = Regex("&#(x[0-9a-fA-F]+|\\d+);")
 
 /**
  * Media URLs a page advertises for link previews, best first: videos, then images.
@@ -135,15 +162,14 @@ object Links {
 internal fun mediaCandidates(html: String, base: String): List<String> {
     val baseUrl = base.toHttpUrlOrNull() ?: return emptyList()
     val meta = HashMap<String, String>()
-    for (tag in Regex("""<meta\s[^>]*>""", RegexOption.IGNORE_CASE).findAll(html)) {
-        val attrs = Regex("""([\w:-]+)\s*=\s*("([^"]*)"|'([^']*)')""").findAll(tag.value)
+    for (tag in META_TAG_REGEX.findAll(html)) {
+        val attrs = ATTR_REGEX.findAll(tag.value)
             .associate { it.groupValues[1].lowercase() to it.groupValues[3].ifEmpty { it.groupValues[4] } }
         val key = (attrs["property"] ?: attrs["name"] ?: attrs["itemprop"])?.lowercase() ?: continue
         val content = attrs["content"]?.takeIf { it.isNotBlank() } ?: continue
         meta.putIfAbsent(key, unescape(content.trim())) // the first of repeated tags is the main one
     }
-    val sources = Regex("""<(?:video|source)\s[^>]*\bsrc\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
-        .findAll(html).map { unescape(it.groupValues[1]) }
+    val sources = SOURCE_REGEX.findAll(html).map { unescape(it.groupValues[1]) }
     val keys = listOf(
         "og:video:secure_url", "og:video:url", "og:video", "twitter:player:stream", "contenturl",
     )
@@ -154,10 +180,10 @@ internal fun mediaCandidates(html: String, base: String): List<String> {
 }
 
 private fun unescape(s: String): String = s
-    .replace(Regex("&#(x[0-9a-fA-F]+|\\d+);")) { m ->
+    .replace(ENTITY_REGEX) { m ->
         val n = m.groupValues[1]
-        val code = if (n.startsWith("x")) n.drop(1).toInt(16) else n.toInt()
-        String(Character.toChars(code))
+        val code = if (n.startsWith("x")) n.drop(1).toIntOrNull(16) else n.toIntOrNull()
+        if (code != null && Character.isValidCodePoint(code)) String(Character.toChars(code)) else m.value
     }
     .replace("&quot;", "\"").replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
 

@@ -28,6 +28,7 @@ import androidx.compose.ui.node.requireLayoutCoordinates
 import androidx.compose.ui.platform.InspectorInfo
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -74,9 +75,22 @@ private class ShimmerNode(private var highlight: Color) : Modifier.Node(), DrawM
         loop = coroutineScope.launch {
             // "Remove animations" (animator scale 0): a still placeholder, no frame callbacks at all.
             if (coroutineContext[MotionDurationScale]?.scaleFactor == 0f) return@launch
+            // Memory-cached thumbnails load within 1–2 frames; wait briefly before starting the VSYNC loop.
+            delay(80L)
+            var wasSweeping = false
             while (isActive) {
                 withFrameMillis { frameMs = it }
-                invalidateDraw()
+                val cycle = frameMs % (SWEEP_MS + REST_MS)
+                if (cycle <= SWEEP_MS) {
+                    wasSweeping = true
+                    invalidateDraw()
+                } else {
+                    if (wasSweeping) {
+                        wasSweeping = false
+                        invalidateDraw() // clear the last band before sleeping through the rest window
+                    }
+                    delay((SWEEP_MS + REST_MS - cycle).coerceAtLeast(16L))
+                }
             }
         }
     }

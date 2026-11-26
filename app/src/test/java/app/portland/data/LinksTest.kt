@@ -38,4 +38,15 @@ class LinksTest {
     fun `a page without media gives nothing`() {
         assertEquals(emptyList<String>(), mediaCandidates("<html><meta name=\"description\" content=\"hi\"></html>", "https://e.com"))
     }
+
+    @Test
+    fun `malformed numeric html entities do not crash candidate parsing`() {
+        val html = """
+            <html><head>
+            <meta name="description" content="bad &#9999999999; &#xFFFFFFFF;">
+            <meta property="og:image" content="https://cdn.example.com/ok.jpg?x=&#x26;">
+            </head></html>
+        """.trimIndent()
+        assertEquals(listOf("https://cdn.example.com/ok.jpg?x=&"), mediaCandidates(html, "https://example.com"))
+    }
 }

@@ -1,6 +1,5 @@
 package app.portland.ui
 
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -49,7 +48,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -99,9 +97,6 @@ fun BoardsGrid(
     val nav = LocalNav.current
     var naming by remember { mutableStateOf(false) }
     val byBoard = remember(lib.pins) { lib.pins.groupBy { it.boardId } }
-    val press = remember { MutableInteractionSource() }
-    val pressed by press.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) 0.96f else 1f, Motion.press(), label = "press")
 
     LazyVerticalStaggeredGrid(
         columns = StaggeredGridCells.Fixed(2),
@@ -113,20 +108,7 @@ fun BoardsGrid(
     ) {
         item(key = "header", span = StaggeredGridItemSpan.FullLine, contentType = "header") { header() }
         item(key = "new", contentType = "new") {
-            Column(
-                Modifier
-                    .graphicsLayer { scaleX = scale; scaleY = scale }
-                    .clickable(interactionSource = press, indication = null, onClickLabel = "New board") { naming = true },
-            ) {
-                Box(
-                    Modifier.fillMaxWidth().aspectRatio(1f).glass(null, Corners.card).clip(CardShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(painterResource(R.drawable.ic_plus), contentDescription = null, tint = p.ink2, modifier = Modifier.size(IconSize.large))
-                }
-                Spacer(Modifier.height(10.dp))
-                Text("New board", style = Type.body.copy(fontWeight = FontWeight.Medium), color = p.ink)
-            }
+            NewBoardCell { naming = true }
         }
         items(lib.boards.size, key = { lib.boards[it].id }, contentType = { "board" }) { i ->
             val board = lib.boards[i]
@@ -139,6 +121,28 @@ fun BoardsGrid(
             naming = false
             store.launch { createBoard(name) }
         }
+    }
+}
+
+@Composable
+private fun NewBoardCell(onClick: () -> Unit) {
+    val p = LocalPalette.current
+    val press = remember { MutableInteractionSource() }
+    val pressed by press.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.96f else 1f, Motion.press(), label = "press")
+    Column(
+        Modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clickable(interactionSource = press, indication = null, onClickLabel = "New board", onClick = onClick),
+    ) {
+        Box(
+            Modifier.fillMaxWidth().aspectRatio(1f).glass(null, Corners.card).clip(CardShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(painterResource(R.drawable.ic_plus), contentDescription = null, tint = p.ink2, modifier = Modifier.size(IconSize.large))
+        }
+        Spacer(Modifier.height(10.dp))
+        Text("New board", style = Type.body.copy(fontWeight = FontWeight.Medium), color = p.ink)
     }
 }
 
@@ -222,11 +226,9 @@ fun BoardScreen(id: String) {
     val grid = rememberLazyStaggeredGridState()
     var headerHeight by remember { mutableIntStateOf(0) }
     var largeHeight by remember { mutableIntStateOf(0) }
-    val shift = remember { Animatable(0f) }
-    LaunchedEffect(grid, largeHeight) {
-        snapshotFlow { grid.headerScroll().coerceAtMost(largeHeight.toFloat()) }.collect { shift.snapTo(it) }
-    }
-    val progress = { if (largeHeight == 0) 0f else shift.value / largeHeight }
+    // Read synchronously during layout/draw so header collapse never lags a frame behind the grid.
+    val shift = { grid.headerScroll().coerceAtMost(largeHeight.toFloat()) }
+    val progress = { if (largeHeight == 0) 0f else shift() / largeHeight }
     val edgePx = with(density) { 24.dp.toPx() }
 
     LaunchedEffect(board) { if (board == null) nav.pop() }
@@ -253,7 +255,7 @@ fun BoardScreen(id: String) {
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
                 .layout { m, c ->
-                    val h = (headerHeight + 12.dp.roundToPx() - shift.value).toInt().coerceAtLeast(0)
+                    val h = (headerHeight + 12.dp.roundToPx() - shift()).toInt().coerceAtLeast(0)
                     val pl = m.measure(Constraints.fixed(c.maxWidth, h))
                     layout(pl.width, pl.height) { pl.place(0, 0) }
                 }
@@ -315,7 +317,7 @@ fun BoardScreen(id: String) {
                 Modifier
                     .fillMaxWidth()
                     .onSizeChanged { largeHeight = it.height }
-                    .offset { IntOffset(0, -shift.value.roundToInt()) }
+                    .offset { IntOffset(0, -shift().roundToInt()) }
                     .graphicsLayer {
                         val t = progress()
                         alpha = (1f - t * 1.6f).coerceIn(0f, 1f)
@@ -399,6 +401,11 @@ fun BoardPickerSheet(
     val store = LocalContext.current.store
     val scope = rememberCoroutineScope()
     val lib by store.library.collectAsStateWithLifecycle()
+    val latestByBoard = remember(lib.pins) {
+        HashMap<String, Pin>(lib.boards.size * 2).apply {
+            for (pin in lib.pins) pin.boardId?.let { putIfAbsent(it, pin) }
+        }
+    }
     var naming by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
@@ -430,7 +437,7 @@ fun BoardPickerSheet(
             }
             items(lib.boards.size, key = { lib.boards[it].id }) { i ->
                 val board = lib.boards[i]
-                val latest = lib.pins.firstOrNull { it.boardId == board.id }
+                val latest = latestByBoard[board.id]
                 PickerRow(board.name, selected = known && current == board.id, visual = { BoardThumb(latest) }) {
                     choose(board.id)
                     onDismiss()

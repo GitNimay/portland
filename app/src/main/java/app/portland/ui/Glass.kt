@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -72,7 +73,10 @@ fun GlassIcon(
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(CircleShape)
             .background(fill)
-            .background(p.fill.copy(alpha = p.fill.alpha * wash))
+            .drawBehind {
+                val w = wash
+                if (w > 0f) drawRect(p.fill.copy(alpha = p.fill.alpha * w))
+            }
             .clickable(interactionSource = press, indication = null, enabled = enabled, role = Role.Button, onClickLabel = label, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {

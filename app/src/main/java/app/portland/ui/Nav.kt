@@ -32,10 +32,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.FrameRateCategory
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.preferredFrameRate
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -51,16 +53,17 @@ sealed interface Screen {
     // Equal screens share a key on purpose: re-opening one that is still animating out makes AnimatedContent reuse
     // that composition, so a screen (and its shared elements) is never on screen twice.
     data class Board(val id: String) : Screen {
-        override val key get() = "board:$id"
+        override val key = "board:$id"
     }
 
     /** A swipeable viewer over [ids] (the list it was opened from), starting at [start]. */
     data class Detail(val ids: List<String>, val start: Int) : Screen {
-        override val key get() = "detail:${ids.hashCode()}:$start"
+        override val key = "detail:${ids.hashCode()}:$start"
     }
 }
 
 // shortcut: the back stack is not saved across process death (reopens on Home); fine for a viewer app.
+@Stable
 class Nav(private val saved: SaveableStateHolder) {
     val stack = mutableStateListOf<Screen>(Screen.Home)
 
@@ -166,7 +169,11 @@ fun AppRoot() {
         ) { screen ->
             CompositionLocalProvider(LocalNav provides nav, LocalShared provides this@SharedTransitionLayout, LocalAnim provides this) {
                 saved.SaveableStateProvider(screen.key) {
-                    Box(Modifier.backPreview(back, screen)) {
+                    Box(
+                        Modifier
+                            .preferredFrameRate(if (back.dragging) FrameRateCategory.High else FrameRateCategory.Default)
+                            .backPreview(back, screen),
+                    ) {
                         when (screen) {
                             Screen.Home -> HomeScreen()
                             is Screen.Board -> BoardScreen(screen.id)

@@ -9,18 +9,21 @@ import android.net.Uri
 import android.util.AtomicFile
 import android.util.Log
 import android.webkit.MimeTypeMap
+import androidx.compose.runtime.Stable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -31,6 +34,7 @@ import java.util.UUID
  * Single source of truth. The library is held in memory, persisted as one JSON file,
  * and mirrored to R2 by [Sync]. Media and thumbnails live in filesDir/{media,thumbs}.
  */
+@Stable
 class Store(private val app: Context) {
     private val file = AtomicFile(File(app.filesDir, "library.json"))
     private val mediaDir = File(app.filesDir, "media").apply { mkdirs() }
@@ -51,7 +55,11 @@ class Store(private val app: Context) {
     }
 
     /** Number of items on their way in: being copied in, or behind a pasted link that is still downloading. */
-    val importing: StateFlow<Int> = combine(_importing, Links.pending(app)) { copying, links -> copying + links }
+    val importing: StateFlow<Int> = combine(
+        _importing,
+        // Initialize WorkManager off the main thread so Application.onCreate() stays fast.
+        flow { emitAll(withContext(Dispatchers.IO) { Links.pending(app) }) },
+    ) { copying, links -> copying + links }
         .stateIn(scope, SharingStarted.Eagerly, 0)
 
     fun mediaFile(p: Pin) = File(mediaDir, "${p.id}.${p.ext}")
@@ -194,10 +202,16 @@ class Store(private val app: Context) {
         val found = withContext(Dispatchers.IO) {
             todo.mapNotNull { pin ->
                 runCatching {
-                    val bytes = thumbFile(pin).takeIf { it.exists() }?.readBytes()
-                        ?: (if (R2.enabled && pin.synced) R2.get(pin.thumbKey) else null)
-                        ?: return@mapNotNull null // not available yet; a later pass picks it up
-                    val bmp = checkNotNull(BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = 4 })) { "undecodable" }
+                    val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
+                    val local = thumbFile(pin).takeIf { it.exists() }
+                    val bmp = if (local != null) {
+                        BitmapFactory.decodeFile(local.path, opts)
+                    } else {
+                        val bytes = (if (R2.enabled && pin.synced) R2.get(pin.thumbKey) else null)
+                            ?: return@mapNotNull null // not available yet; a later pass picks it up
+                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+                    }
+                    checkNotNull(bmp) { "undecodable" }
                     pin.id to colorsOf(bmp).also { bmp.recycle() }
                 }.onFailure { Log.w("Store", "colours failed for ${pin.id}", it) }.getOrNull()
             }.toMap()
@@ -230,21 +244,34 @@ class Store(private val app: Context) {
             var w: Int
             var h: Int
             val thumb = if (video) {
+                var coverBmp: Bitmap? = null
                 val frame = MediaMetadataRetriever().use { r ->
                     r.setDataSource(media.path)
                     duration = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0
-                    // A tenth of the way in (at most 3s): videos often open on black or a title card.
-                    val at = (duration * 100).coerceAtMost(3_000_000L) // µs
-                    checkNotNull(r.getScaledFrameAtTime(at, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, THUMB_MAX, THUMB_MAX)) { "no frame" }
+                    val mw = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+                    val mh = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+                    val rot = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+                    val rotated = rot == 90 || rot == 270
+                    w = if (rotated) mh else mw
+                    h = if (rotated) mw else mh
+                    coverBmp = cover?.takeIf { w > 0 && h > 0 }?.let { runCatching { decodeScaled(it) }.getOrNull() }
+                    if (coverBmp != null) {
+                        null
+                    } else {
+                        // A tenth of the way in (at most 3s): videos often open on black or a title card.
+                        val at = (duration * 100).coerceAtMost(3_000_000L) // µs
+                        val f = r.getScaledFrameAtTime(at, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, THUMB_MAX, THUMB_MAX)
+                            ?: r.getScaledFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST, THUMB_MAX, THUMB_MAX)
+                        checkNotNull(f) { "no frame" }.also {
+                            if (w <= 0 || h <= 0) { w = it.width; h = it.height }
+                        }
+                    }
                 }
-                // The card keeps the video's own shape; a cover of another shape is cropped to it on screen.
-                w = frame.width
-                h = frame.height
-                cover?.let { runCatching { decodeScaled(it) }.getOrNull() }?.also { frame.recycle() } ?: frame
+                coverBmp ?: cover?.let { runCatching { decodeScaled(it) }.getOrNull() }?.also { frame?.recycle() } ?: checkNotNull(frame)
             } else {
                 decodeScaled(media).also { w = it.width; h = it.height }
             }
-            thumbFile.outputStream().use { thumb.compress(Bitmap.CompressFormat.WEBP_LOSSY, 80, it) }
+            thumbFile.outputStream().buffered().use { thumb.compress(Bitmap.CompressFormat.WEBP_LOSSY, 80, it) }
             val pin = Pin(id, video, ext, w, h, duration, boardId = boardId, createdAt = createdAt, colors = colorsOf(thumb))
             thumb.recycle()
             return pin
@@ -266,10 +293,10 @@ class Store(private val app: Context) {
     /** Removes the local files of pins that are no longer in the library (deleted on another install). */
     suspend fun dropFiles(ids: Collection<String>) = withContext(Dispatchers.IO) {
         if (ids.isEmpty()) return@withContext
-        ids.forEach(::forget)
         (mediaDir.listFiles().orEmpty().asList() + thumbDir.listFiles().orEmpty())
             .filter { it.nameWithoutExtension in ids }
             .forEach { it.delete() }
+        ids.forEach(::forget)
     }
 
     private fun colorsOf(bmp: Bitmap): List<String> {

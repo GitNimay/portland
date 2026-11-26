@@ -8,7 +8,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.MediaStore
-import android.webkit.MimeTypeMap
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.annotation.DrawableRes
@@ -209,10 +208,6 @@ private fun DockButton(action: Action, state: DockState, enabled: Boolean, onCli
     })
 }
 
-private fun mime(pin: Pin): String =
-    MimeTypeMap.getSingleton().getMimeTypeFromExtension(pin.ext.lowercase())
-        ?: if (pin.video) "video/mp4" else "image/jpeg"
-
 /** [pin]'s original file: the local copy, else downloaded once from R2 into the cache. */
 private suspend fun shareableFile(context: Context, pin: Pin): File = withContext(Dispatchers.IO) {
     val local = context.store.mediaFile(pin)
@@ -224,7 +219,7 @@ private suspend fun shareableFile(context: Context, pin: Pin): File = withContex
     try {
         R2.http.newCall(Request.Builder().url(R2.url(pin.mediaKey)).build()).execute().use { res ->
             check(res.isSuccessful) { "download failed: ${res.code}" }
-            res.body.byteStream().use { input -> part.outputStream().use { input.copyTo(it) } }
+            res.body.byteStream().use { input -> part.outputStream().buffered().use { input.copyTo(it) } }
         }
         check(part.renameTo(out)) { "could not keep the download" }
     } finally {
@@ -240,7 +235,7 @@ private fun uriFor(context: Context, file: File): Uri =
 private fun shareIntent(context: Context, file: File, pin: Pin): Intent {
     val uri = uriFor(context, file)
     val send = Intent(Intent.ACTION_SEND)
-        .setType(mime(pin))
+        .setType(pin.mimeType)
         .putExtra(Intent.EXTRA_STREAM, uri)
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     // ClipData is what the sheet previews, and it carries the read grant to whichever app is picked.
@@ -259,7 +254,7 @@ private suspend fun saveToGallery(context: Context, file: File, pin: Pin) = with
     }
     val values = ContentValues().apply {
         put(MediaStore.MediaColumns.DISPLAY_NAME, "Portland ${pin.id}.${pin.ext}")
-        put(MediaStore.MediaColumns.MIME_TYPE, mime(pin))
+        put(MediaStore.MediaColumns.MIME_TYPE, pin.mimeType)
         put(MediaStore.MediaColumns.RELATIVE_PATH, if (pin.video) "Movies/Portland" else "Pictures/Portland")
         put(MediaStore.MediaColumns.DATE_TAKEN, pin.createdAt)
         put(MediaStore.MediaColumns.IS_PENDING, 1) // hidden from other apps until it is fully written
@@ -267,7 +262,7 @@ private suspend fun saveToGallery(context: Context, file: File, pin: Pin) = with
     val uri = resolver.insert(collection, values) ?: error("gallery insert failed")
     try {
         val out = resolver.openOutputStream(uri) ?: error("gallery stream unavailable")
-        out.use { stream -> file.inputStream().use { it.copyTo(stream) } }
+        out.use { stream -> file.inputStream().buffered().use { it.copyTo(stream) } }
         resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
     } catch (e: Throwable) {
         resolver.delete(uri, null, null) // never leave a half-written, pending entry behind

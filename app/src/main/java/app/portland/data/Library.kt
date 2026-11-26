@@ -1,5 +1,6 @@
 package app.portland.data
 
+import android.webkit.MimeTypeMap
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -24,6 +25,9 @@ data class Pin(
 ) {
     val mediaKey get() = "media/$id.$ext"
     val thumbKey get() = "thumbs/$id.webp"
+    val mimeType: String
+        get() = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext.lowercase())
+            ?: if (video) "video/mp4" else "image/jpeg"
 }
 
 data class Board(val id: String, val name: String, val createdAt: Long, val updatedAt: Long = createdAt)

@@ -1,0 +1,14 @@
+title = "Portland Gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allow official AWS documentation SigV4 example test vector"
+paths = [
+  '''^app/src/test/java/app/portland/data/SigV4Test\.kt$''',
+]
+regexes = [
+  '''AKIAIOSFODNN7EXAMPLE''',
+  '''wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY''',
+]

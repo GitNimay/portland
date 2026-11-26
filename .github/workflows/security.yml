@@ -1,0 +1,205 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", "docs/**"]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      zap_target_url:
+        description: "Optional web/API URL to scan with OWASP ZAP Baseline"
+        required: false
+        default: ""
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    name: Gitleaks Secret Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    env:
+      GITLEAKS_VERSION: v8.30.1
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Cache Gitleaks OSS binary
+        id: cache-gitleaks
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/bin/gitleaks
+          key: ${{ runner.os }}-gitleaks-${{ env.GITLEAKS_VERSION }}
+
+      - name: Install Gitleaks OSS binary
+        if: steps.cache-gitleaks.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.local/bin
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz" \
+            | tar -xz -C ~/.local/bin gitleaks
+          chmod +x ~/.local/bin/gitleaks
+
+      - name: Run Gitleaks secret scan
+        id: scan
+        continue-on-error: true
+        run: |
+          ~/.local/bin/gitleaks git --verbose --redact --config .gitleaks.toml \
+            --report-format sarif --report-path gitleaks.sarif .
+
+      - name: Upload Gitleaks SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('gitleaks.sarif') != ''
+        with:
+          sarif_file: gitleaks.sarif
+          category: gitleaks
+
+      - name: Enforce Gitleaks result
+        if: steps.scan.outcome != 'success'
+        run: exit 1
+
+  trivy:
+    name: Trivy Security Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig,secret
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          cache: "true"
+          exit-code: "0"
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-fs
+
+      - name: Summarize & enforce Trivy findings
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+
+          with open("trivy-results.sarif", encoding="utf-8") as f:
+              data = json.load(f)
+
+          findings = []
+          for run in data.get("runs", []):
+              for res in run.get("results", []):
+                  rule_id = res.get("ruleId", "unknown")
+                  level = res.get("level", "warning")
+                  msg = res.get("message", {}).get("text", "").replace("\n", " ")
+                  loc = ""
+                  locs = res.get("locations", [])
+                  if locs:
+                      uri = locs[0].get("physicalLocation", {}).get("artifactLocation", {}).get("uri", "")
+                      line = locs[0].get("physicalLocation", {}).get("region", {}).get("startLine", "")
+                      loc = f"{uri}:{line}" if line else uri
+                  findings.append((level, rule_id, loc, msg))
+
+          lines = [
+              "### Trivy Security Summary (CRITICAL/HIGH, fixable)",
+              f"- **Findings:** {len(findings)}",
+              "",
+          ]
+          if findings:
+              lines += ["| Level | Rule | Location | Message |", "| --- | --- | --- | --- |"]
+              for level, rule_id, loc, msg in findings[:50]:
+                  safe_msg = msg[:160].replace("|", "\\|")
+                  lines.append(f"| `{level}` | `{rule_id}` | `{loc}` | {safe_msg} |")
+          else:
+              lines.append("No CRITICAL or HIGH fixable findings detected.")
+
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary_path:
+              with open(summary_path, "a", encoding="utf-8") as out:
+                  out.write("\n".join(lines) + "\n")
+
+          if findings:
+              for level, rule_id, loc, msg in findings:
+                  print(f"::error::{rule_id} ({loc}): {msg}")
+              sys.exit(1)
+          PY
+
+  osv-pr:
+    name: OSV-Scanner (PR)
+    if: github.event_name == 'pull_request'
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@v2.7.1
+    with:
+      fail-on-vuln: true
+      upload-sarif: true
+
+  osv-full:
+    name: OSV-Scanner (Full)
+    if: github.event_name != 'pull_request'
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.7.1
+    with:
+      fail-on-vuln: true
+      upload-sarif: true
+
+  zap-baseline:
+    name: OWASP ZAP Baseline
+    if: github.event_name != 'pull_request' && ((github.event_name == 'workflow_dispatch' && inputs.zap_target_url != '') || vars.ZAP_TARGET_URL != '')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Run OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.15.0
+        with:
+          target: ${{ inputs.zap_target_url || vars.ZAP_TARGET_URL }}
+          fail_action: true
+          allow_issue_writing: false
+          artifact_name: zap-baseline-report
+
+  zap-status:
+    name: OWASP ZAP DAST Status
+    if: github.event_name != 'pull_request' && !(github.event_name == 'workflow_dispatch' && inputs.zap_target_url != '') && vars.ZAP_TARGET_URL == ''
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    steps:
+      - name: Report DAST configuration status
+        run: |
+          {
+            echo "### OWASP ZAP Baseline (DAST)"
+            echo "Skipped active DAST scan: Portland is a native Android app with no hosted web target configured."
+            echo ""
+            echo "To enable automated OWASP ZAP scanning against a web app or backend API, set repository variable \`ZAP_TARGET_URL\` or run this workflow manually with \`zap_target_url\`."
+          } >> "$GITHUB_STEP_SUMMARY"

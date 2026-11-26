@@ -112,7 +112,7 @@ jobs:
       - uses: gradle/actions/dependency-submission@v6
         with:
           cache-provider: enhanced
-          cache-cleanup: on-success
+          cache-cleanup: never
 
   build-release:
     name: Build Release APK
@@ -138,8 +138,6 @@ jobs:
       - uses: ./.github/actions/setup-android-gradle
         with:
           job-key: build-release
-          # Release configuration depends on VERSION_CODE and secrets; never cache it across runs.
-          cache-config-cache: "false"
 
       - name: Version and signing key
         id: meta

@@ -1,18 +1,14 @@
 name: Setup Android Gradle Environment
-description: Sets up JDK 21, restores Configuration Cache and Android Lint cache, and configures Gradle User Home caching.
+description: Sets up JDK 21, optional Android Lint cache, and Gradle User Home / Build Cache.
 
 inputs:
   job-key:
-    description: Unique cache key namespace for this CI job
+    description: Cache key namespace for this CI job
     required: true
   cache-read-only:
     description: Override cache-read-only for Gradle User Home ("true" or "false"; defaults to read-only off main)
     required: false
     default: ""
-  cache-config-cache:
-    description: Persist project-local .gradle/configuration-cache across runs
-    required: false
-    default: "true"
   cache-android-lint:
     description: Persist ~/.android/cache for Android Lint across runs
     required: false
@@ -28,16 +24,7 @@ runs:
         java-version: 21
 
     # Registered before setup-gradle so post-step reverse order stops the Gradle daemon
-    # before actions/cache archives .gradle/configuration-cache and ~/.android/cache.
-    - name: Cache Gradle configuration cache
-      if: inputs.cache-config-cache == 'true'
-      uses: actions/cache@v6
-      with:
-        path: .gradle/configuration-cache
-        key: ${{ runner.os }}-gradle-cc-${{ inputs.job-key }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties', 'gradle/libs.versions.toml', 'build.gradle.kts', 'settings.gradle.kts', 'app/build.gradle.kts', 'gradle.properties') }}
-        restore-keys: |
-          ${{ runner.os }}-gradle-cc-${{ inputs.job-key }}-
-
+    # before actions/cache archives ~/.android/cache.
     - name: Cache Android Lint cache
       if: inputs.cache-android-lint == 'true'
       uses: actions/cache@v6
@@ -51,5 +38,6 @@ runs:
       uses: gradle/actions/setup-gradle@v6
       with:
         cache-provider: enhanced
-        cache-cleanup: on-success
+        # Keep shared dependencies/transforms intact across parallel debug, test, lint, and release jobs.
+        cache-cleanup: never
         cache-read-only: ${{ inputs.cache-read-only != '' && inputs.cache-read-only == 'true' || github.ref != 'refs/heads/main' }}

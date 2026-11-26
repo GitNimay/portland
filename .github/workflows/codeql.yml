@@ -38,10 +38,9 @@ jobs:
       - uses: ./.github/actions/setup-android-gradle
         with:
           job-key: codeql
-          # CodeQL disables build & configuration caches during traced compilation,
-          # so keep Gradle User Home read-only and skip Configuration Cache persistence.
+          # CodeQL disables the Gradle build cache during traced compilation,
+          # so keep Gradle User Home read-only to avoid polluting main's caches.
           cache-read-only: "true"
-          cache-config-cache: "false"
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4

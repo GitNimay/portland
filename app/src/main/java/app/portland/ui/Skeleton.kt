@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
@@ -131,6 +130,6 @@ fun SkeletonCard(ratio: Float, modifier: Modifier = Modifier) {
 fun SkeletonLine(fraction: Float, modifier: Modifier = Modifier) {
     val p = LocalPalette.current
     Box(modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 6.dp).height(18.dp), contentAlignment = Alignment.CenterStart) {
-        Box(Modifier.fillMaxWidth(fraction).height(9.dp).clip(RoundedCornerShape(5.dp)).background(p.fill).shimmer(p.shimmer))
+        Box(Modifier.fillMaxWidth(fraction).height(9.dp).clip(Corners.bar).background(p.fill).shimmer(p.shimmer))
     }
 }

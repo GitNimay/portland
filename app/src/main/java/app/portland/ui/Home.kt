@@ -315,7 +315,7 @@ private fun Header(
                         modifier = Modifier.weight(1f).height(44.dp).glass(backdrop).clip(Corners.pill).padding(horizontal = 14.dp).focusRequester(focus),
                         decorationBox = { field ->
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(painterResource(R.drawable.ic_search), contentDescription = null, tint = p.ink3, modifier = Modifier.size(18.dp))
+                                Icon(painterResource(R.drawable.ic_search), contentDescription = null, tint = p.ink3, modifier = Modifier.size(IconSize.small))
                                 Spacer(Modifier.width(8.dp))
                                 Box(Modifier.weight(1f)) {
                                     if (lastQuery.isEmpty()) Text("Search", style = Type.body, color = p.ink3)
@@ -344,7 +344,7 @@ private fun Header(
                 }
                 .padding(start = 20.dp, end = 20.dp, top = 4.dp),
         ) {
-            if (query == null) Text("Portland", style = Type.display, color = p.ink)
+            if (query == null) Text("Portland", style = Type.largeTitle, color = p.ink)
             // Status changes ("Adding 2…" → "backed up") cross-fade instead of snapping.
             AnimatedContent(
                 targetState = matches?.let { if (it == 1) "1 match" else "$it matches" } ?: status(lib, importing),
@@ -352,7 +352,7 @@ private fun Header(
                 modifier = Modifier.padding(top = if (query == null) 4.dp else 0.dp),
                 label = "status",
             ) { line ->
-                Text(line, style = Type.caption, color = p.ink3)
+                Text(line, style = Type.footnote, color = p.ink3)
             }
             // Remembers the version so the pill can fold away with its text intact.
             var lastUpdate by remember { mutableStateOf(update) }
@@ -365,7 +365,7 @@ private fun Header(
             ) {
                 Text(
                     "Version ${lastUpdate?.versionName.orEmpty()} is ready · Restart",
-                    style = Type.caption.copy(fontWeight = FontWeight.Medium),
+                    style = Type.footnote.copy(fontWeight = FontWeight.Medium),
                     color = p.ink,
                     modifier = Modifier
                         .padding(top = 12.dp)
@@ -419,7 +419,7 @@ private fun Header(
                             ) {
                                 Text(
                                     label,
-                                    style = Type.caption.copy(fontWeight = if (i == tab()) FontWeight.SemiBold else FontWeight.Medium),
+                                    style = Type.footnote.copy(fontWeight = if (i == tab()) FontWeight.SemiBold else FontWeight.Medium),
                                     color = color,
                                 )
                             }

@@ -177,6 +177,8 @@ fun DetailScreen(ids: List<String>, start: Int) {
     // A committed pull pops straight away: the shared-element transition carries the media home from where it was let go.
     val swipe = rememberMediaSwipe { nav.pop() }
     val chrome = Modifier.graphicsLayer { alpha = 1f - swipe.dismissProgress }
+    // The bottom bar and filmstrip give way to the send dock as it rises into their place.
+    val underDock = Modifier.graphicsLayer { alpha = (1f - swipe.dismissProgress) * (1f - swipe.sendProgress) }
     val strip = pins.size > 1
     val bottomChrome = BarHeight + BarGap + if (strip) StripHeight + StripGap else 0.dp
 
@@ -219,10 +221,10 @@ fun DetailScreen(ids: List<String>, start: Int) {
                 label = "when",
             ) { (at, board) ->
                 Column {
-                    Text(dayLabel(at), style = Type.body.copy(fontWeight = FontWeight.SemiBold), color = p.ink, maxLines = 1)
+                    Text(dayLabel(at), style = Type.headline, color = p.ink, maxLines = 1)
                     Text(
                         listOfNotNull(timeLabel(at), board).joinToString(" · "),
-                        style = Type.caption,
+                        style = Type.footnote,
                         color = p.ink3,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -232,7 +234,7 @@ fun DetailScreen(ids: List<String>, start: Int) {
         }
 
         Column(
-            chrome.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(bottom = BarGap),
+            underDock.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(bottom = BarGap),
         ) {
             if (strip) {
                 Filmstrip(pins, pager)
@@ -323,7 +325,7 @@ private fun BarAction(@DrawableRes icon: Int, label: String, onClick: () -> Unit
             painterResource(icon),
             contentDescription = label,
             tint = p.ink,
-            modifier = Modifier.size(20.dp).graphicsLayer { scaleX = scale; scaleY = scale },
+            modifier = Modifier.size(IconSize.medium).graphicsLayer { scaleX = scale; scaleY = scale },
         )
     }
 }
@@ -409,7 +411,7 @@ private fun Filmstrip(pins: List<Pin>, pager: PagerState) {
                             painterResource(R.drawable.ic_play),
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.align(Alignment.BottomStart).padding(5.dp).size(8.dp),
+                            modifier = Modifier.align(Alignment.BottomStart).padding(5.dp).size(IconSize.inline),
                         )
                     }
                 }
@@ -463,7 +465,7 @@ private fun DetailsSheet(pin: Pin, boardName: String?, focusNote: Boolean, onBoa
         onDismissRequest = onDismiss,
         containerColor = frostedSheet(),
         tonalElevation = 0.dp,
-        shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
+        shape = RoundedCornerShape(topStart = Corners.sheetRadius, topEnd = Corners.sheetRadius),
         dragHandle = { BottomSheetDefaults.DragHandle(width = 36.dp, height = 5.dp, color = p.ink3.copy(alpha = 0.5f)) },
     ) {
         FrostBehind()
@@ -477,7 +479,7 @@ private fun DetailsSheet(pin: Pin, boardName: String?, focusNote: Boolean, onBoa
         ) {
             Text(
                 "Details",
-                style = Type.body.copy(fontWeight = FontWeight.SemiBold),
+                style = Type.headline,
                 color = p.ink,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
@@ -493,7 +495,7 @@ private fun DetailsSheet(pin: Pin, boardName: String?, focusNote: Boolean, onBoa
                     .padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(painterResource(R.drawable.ic_bookmark), null, tint = p.ink, modifier = Modifier.size(20.dp))
+                Icon(painterResource(R.drawable.ic_bookmark), null, tint = p.ink, modifier = Modifier.size(IconSize.medium))
                 Spacer(Modifier.width(12.dp))
                 Text(
                     boardName ?: "No board",
@@ -503,7 +505,7 @@ private fun DetailsSheet(pin: Pin, boardName: String?, focusNote: Boolean, onBoa
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                Icon(painterResource(R.drawable.ic_chevron_down), null, tint = p.ink3, modifier = Modifier.size(18.dp))
+                Icon(painterResource(R.drawable.ic_chevron_down), null, tint = p.ink3, modifier = Modifier.size(IconSize.small))
             }
             Spacer(Modifier.height(12.dp))
             BasicTextField(
@@ -531,7 +533,7 @@ private fun DetailsSheet(pin: Pin, boardName: String?, focusNote: Boolean, onBoa
                     if (pin.w > 0 && pin.h > 0) append(" · ${pin.w}×${pin.h}")
                     if (pin.video && pin.durationMs > 0) append(" · ${formatDuration(pin.durationMs)}")
                 },
-                style = Type.caption,
+                style = Type.footnote,
                 color = p.ink3,
                 modifier = Modifier.padding(start = 4.dp, top = 12.dp),
             )
@@ -824,7 +826,7 @@ private fun VideoLayer(pin: Pin, active: Boolean, modifier: Modifier = Modifier)
                 ) {
                     Text(
                         "${if (left) "−" else "+"}${seekTotal}s",
-                        style = Type.caption.copy(fontWeight = FontWeight.SemiBold),
+                        style = Type.footnote.copy(fontWeight = FontWeight.SemiBold),
                         color = Color.White,
                     )
                 }
@@ -868,12 +870,12 @@ private fun TimePill(playing: Boolean, duration: Long, position: () -> Long, mod
             painterResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play),
             contentDescription = if (playing) "Pause" else "Play",
             tint = Color.White,
-            modifier = Modifier.size(10.dp),
+            modifier = Modifier.size(IconSize.inline),
         )
         Spacer(Modifier.width(6.dp))
         Text(
             "${formatDuration(seconds * 1000)} / ${formatDuration(duration)}",
-            style = Type.caption,
+            style = Type.footnote.digits(),
             color = Color.White,
         )
     }

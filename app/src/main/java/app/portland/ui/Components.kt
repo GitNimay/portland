@@ -105,7 +105,7 @@ fun IconBtn(
 ) {
     if (backdrop == null) {
         IconButton(onClick = onClick, modifier = modifier) {
-            Icon(painterResource(icon), contentDescription = label, tint = tint, modifier = Modifier.size(22.dp))
+            Icon(painterResource(icon), contentDescription = label, tint = tint, modifier = Modifier.size(IconSize.medium))
         }
         return
     }
@@ -119,7 +119,7 @@ fun IconBtn(
             .clickable(interactionSource = press, indication = null, role = Role.Button, onClickLabel = label, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(painterResource(icon), contentDescription = label, tint = tint, modifier = Modifier.size(20.dp))
+        Icon(painterResource(icon), contentDescription = label, tint = tint, modifier = Modifier.size(IconSize.medium))
     }
 }
 
@@ -137,9 +137,9 @@ fun EmptyState(title: String, body: String, modifier: Modifier = Modifier) {
             }
             .padding(horizontal = 4.dp, vertical = 48.dp),
     ) {
-        Text(title, style = Type.body.copy(fontWeight = FontWeight.SemiBold), color = p.ink)
+        Text(title, style = Type.headline, color = p.ink)
         Spacer(Modifier.height(6.dp))
-        Text(body, style = Type.caption, color = p.ink2)
+        Text(body, style = Type.footnote, color = p.ink2)
     }
 }
 
@@ -307,9 +307,9 @@ fun PinCard(
                             .padding(horizontal = 8.dp, vertical = 3.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(painterResource(R.drawable.ic_play), contentDescription = "Video", tint = Color.White, modifier = Modifier.size(10.dp))
+                        Icon(painterResource(R.drawable.ic_play), contentDescription = "Video", tint = Color.White, modifier = Modifier.size(IconSize.inline))
                         Spacer(Modifier.width(4.dp))
-                        Text(formatDuration(pin.durationMs), style = Type.caption, color = Color.White)
+                        Text(formatDuration(pin.durationMs), style = Type.footnote.copy(fontWeight = FontWeight.Medium).digits(), color = Color.White)
                     }
                 }
             }
@@ -331,7 +331,7 @@ fun PinCard(
                 text == DESCRIBING -> SkeletonLine(0.7f)
                 text.isNotBlank() -> Text(
                     text,
-                    style = Type.caption,
+                    style = Type.footnote,
                     color = p.ink2,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -352,7 +352,7 @@ private fun SelectMark(visible: Boolean, selected: Boolean, modifier: Modifier) 
         visible,
         modifier,
         enter = scaleIn(spring(stiffness = Spring.StiffnessMedium), initialScale = 0.5f) + fadeIn(tween(120)),
-        exit = scaleOut(tween(120), targetScale = 0.5f) + fadeOut(tween(120)),
+        exit = scaleOut(Motion.dismiss(), targetScale = 0.5f) + fadeOut(tween(120)),
     ) { Mark(selected) }
 }
 
@@ -368,7 +368,7 @@ private fun Mark(selected: Boolean) {
         contentAlignment = Alignment.Center,
     ) {
         AnimatedVisibility(selected, enter = scaleIn(spring(stiffness = Spring.StiffnessHigh)) + fadeIn(), exit = scaleOut() + fadeOut()) {
-            Icon(painterResource(R.drawable.ic_check), contentDescription = null, tint = p.canvas, modifier = Modifier.size(16.dp))
+            Icon(painterResource(R.drawable.ic_check), contentDescription = null, tint = p.canvas, modifier = Modifier.size(IconSize.small))
         }
     }
 }
@@ -396,7 +396,7 @@ fun BoxScope.SelectionBar(selection: PinSelection) {
         selection.active,
         Modifier.align(Alignment.TopCenter),
         enter = slideInVertically(Motion.snappy()) { -it } + fadeIn(),
-        exit = slideOutVertically(tween(200)) { -it } + fadeOut(tween(200)),
+        exit = slideOutVertically(Motion.dismiss()) { -it } + fadeOut(tween(200)),
     ) {
         Column {
             Row(
@@ -413,7 +413,7 @@ fun BoxScope.SelectionBar(selection: PinSelection) {
                     modifier = Modifier.weight(1f).padding(start = 4.dp),
                     label = "count",
                 ) { n ->
-                    Text("$n selected", style = Type.body.copy(fontWeight = FontWeight.SemiBold), color = p.ink)
+                    Text("$n selected", style = Type.headline, color = p.ink)
                 }
                 IconBtn(R.drawable.ic_bookmark, "Add selected to board") {
                     haptics.performHapticFeedback(HapticFeedbackType.ContextClick)

@@ -28,14 +28,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -70,7 +67,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
@@ -96,6 +92,40 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.compose.PlayerSurface
 import androidx.media3.ui.compose.SURFACE_TYPE_TEXTURE_VIEW
+import androidx.annotation.DrawableRes
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
+import java.time.LocalDate
+import java.time.format.FormatStyle
+import kotlin.math.abs
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.launch
 import app.portland.R
 import app.portland.data.Pin
 import app.portland.data.R2
@@ -113,15 +143,17 @@ import me.saket.telephoto.zoomable.coil3.ZoomableAsyncImage
 import me.saket.telephoto.zoomable.rememberZoomableImageState
 
 /**
- * Swipeable viewer over [ids]. Gestures on a pin's media (see [MediaSwipe]): pull it down to go back to
- * where it was opened from, push it up for the send shelf; sideways pages between pins.
+ * Swipeable viewer over [ids], laid out like a gallery: the media centred between a slim top bar (back, when it
+ * was saved) and the bottom chrome (a filmstrip of the other pins over the action bar). Gestures on a pin's
+ * media (see [MediaSwipe]): pull it down to go back to where it was opened from, push it up for the send shelf;
+ * sideways pages between pins. The note, board and AI description live in the details sheet.
  */
 @Composable
 fun DetailScreen(ids: List<String>, start: Int) {
     val p = LocalPalette.current
-    val context = LocalContext.current
-    val store = context.store
+    val store = LocalContext.current.store
     val nav = LocalNav.current
+    val haptics = LocalHapticFeedback.current
     val lib by store.library.collectAsStateWithLifecycle()
     val pins = remember(ids, lib.pins) {
         val byId = lib.pins.associateBy { it.id }
@@ -137,74 +169,120 @@ fun DetailScreen(ids: List<String>, start: Int) {
     val pager = rememberPagerState(initialPage = start.coerceIn(0, pins.lastIndex)) { pins.size }
     LaunchedEffect(pins.size) { if (pager.currentPage > pins.lastIndex) pager.scrollToPage(pins.lastIndex) }
     val current = pins.getOrNull(pager.currentPage) ?: pins.first()
-    var menu by remember { mutableStateOf(false) }
+    val boardName = lib.boards.firstOrNull { it.id == current.boardId }?.name
+    var details by remember { mutableStateOf<DetailsOpen?>(null) }
+    var picker by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf(false) }
     val backdrop = rememberLayerBackdrop { drawRect(p.canvas); drawContent() }
     // A committed pull pops straight away: the shared-element transition carries the media home from where it was let go.
     val swipe = rememberMediaSwipe { nav.pop() }
     val chrome = Modifier.graphicsLayer { alpha = 1f - swipe.dismissProgress }
+    val strip = pins.size > 1
+    val bottomChrome = BarHeight + BarGap + if (strip) StripHeight + StripGap else 0.dp
 
     Box(Modifier.fillMaxSize().background(p.canvas)) {
         HorizontalPager(
             state = pager,
             modifier = Modifier.fillMaxSize().layerBackdrop(backdrop),
             beyondViewportPageCount = 1,
+            pageSpacing = 16.dp,
             userScrollEnabled = !swipe.shelfOpen,
             key = { pins[it].id },
         ) { page ->
             val pin = pins[page]
-            PinPage(
-                pin = pin,
-                boardName = lib.boards.firstOrNull { it.id == pin.boardId }?.name,
-                active = pager.settledPage == page,
-                swipe = swipe,
-            )
+            // The whole stage takes the vertical swipes, not just the media, so a pull from anywhere closes.
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .mediaSwipe(swipe, pin.id)
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .padding(top = TopBarHeight + StageGap, bottom = bottomChrome + StageGap)
+                    .padding(horizontal = 16.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                MediaBox(pin, active = pager.settledPage == page, swipe)
+            }
         }
 
-        // Keeps content from running under the status bar icons.
-        Box(
-            chrome.fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        0f to p.canvas.copy(alpha = 0.96f),
-                        0.6f to p.canvas.copy(alpha = 0.7f),
-                        1f to p.canvas.copy(alpha = 0f),
-                    ),
-                )
-                .statusBarsPadding()
-                .height(64.dp),
-        )
-
+        // Top bar: back, and when this pin was saved.
         Row(
-            chrome.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
+            chrome.fillMaxWidth().statusBarsPadding().height(TopBarHeight).padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconBtn(R.drawable.ic_back, "Back", backdrop = backdrop) { nav.pop() }
-            Spacer(Modifier.weight(1f))
-            IconBtn(R.drawable.ic_share, "Share", backdrop = backdrop) { swipe.openShelf(current.id) }
-            Spacer(Modifier.width(8.dp))
-            Box {
-                IconBtn(R.drawable.ic_more, "More", backdrop = backdrop) { menu = true }
-                DropdownMenu(
-                    expanded = menu,
-                    onDismissRequest = { menu = false },
-                    shape = Corners.menu,
-                    containerColor = p.sheet,
-                    tonalElevation = 0.dp,
-                    shadowElevation = 16.dp,
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Delete", style = Type.body, color = p.danger) },
-                        leadingIcon = {
-                            Icon(painterResource(R.drawable.ic_trash), null, tint = p.danger, modifier = Modifier.size(20.dp))
-                        },
-                        onClick = { menu = false; confirm = true },
+            Spacer(Modifier.width(12.dp))
+            AnimatedContent(
+                targetState = current.createdAt to boardName,
+                transitionSpec = { fadeIn(tween(220, delayMillis = 60)) togetherWith fadeOut(tween(120)) },
+                modifier = Modifier.weight(1f),
+                label = "when",
+            ) { (at, board) ->
+                Column {
+                    Text(dayLabel(at), style = Type.body.copy(fontWeight = FontWeight.SemiBold), color = p.ink, maxLines = 1)
+                    Text(
+                        listOfNotNull(timeLabel(at), board).joinToString(" · "),
+                        style = Type.caption,
+                        color = p.ink3,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
         }
 
+        Column(
+            chrome.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(bottom = BarGap),
+        ) {
+            if (strip) {
+                Filmstrip(pins, pager)
+                Spacer(Modifier.height(StripGap))
+            }
+            Row(
+                Modifier.fillMaxWidth().height(BarHeight).padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconBtn(R.drawable.ic_share, "Share", backdrop = backdrop) { swipe.openShelf(current.id) }
+                Spacer(Modifier.weight(1f))
+                Row(Modifier.glass(backdrop, Corners.pill).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    BarAction(R.drawable.ic_bookmark, if (boardName == null) "Save to board" else "Change board") {
+                        haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
+                        picker = true
+                    }
+                    BarAction(R.drawable.ic_edit, "Edit note") { details = DetailsOpen.Note }
+                    BarAction(R.drawable.ic_trash, "Delete") {
+                        haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
+                        confirm = true
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                IconBtn(R.drawable.ic_info, "Details", backdrop = backdrop) { details = DetailsOpen.Info }
+            }
+        }
+
         SendShelf(swipe, pins.firstOrNull { it.id == swipe.id }, backdrop)
+    }
+
+    details?.let { open ->
+        DetailsSheet(
+            pin = current,
+            boardName = boardName,
+            focusNote = open == DetailsOpen.Note,
+            onBoard = { picker = true },
+            onDismiss = { details = null },
+        )
+    }
+
+    if (picker) {
+        val pin = current
+        BoardPickerSheet(
+            current = pin.boardId,
+            onPick = { id ->
+                picker = false
+                store.launch { setBoard(listOf(pin.id), id) }
+            },
+            onDismiss = { picker = false },
+        )
     }
 
     if (confirm) DeletePinsDialog(
@@ -219,48 +297,199 @@ fun DetailScreen(ids: List<String>, start: Int) {
     )
 }
 
+private enum class DetailsOpen { Info, Note }
+
+private val TopBarHeight = 60.dp // a 44dp glass button with 8dp above and below
+private val BarHeight = 44.dp
+private val BarGap = 8.dp // below the action bar, above the navigation bar
+private val StripHeight = 44.dp
+private val StripGap = 14.dp // between the filmstrip and the action bar
+private val StageGap = 12.dp // the media keeps at least this much air from the chrome
+
+/** One icon in the action bar's glass pill: a 48×44 target with a small icon that swells under the finger. */
 @Composable
-private fun PinPage(pin: Pin, boardName: String?, active: Boolean, swipe: MediaSwipe) {
+private fun BarAction(@DrawableRes icon: Int, label: String, onClick: () -> Unit) {
+    val p = LocalPalette.current
+    val press = remember { MutableInteractionSource() }
+    val pressed by press.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.86f else 1f, Motion.press(), label = "press")
+    Box(
+        Modifier
+            .size(width = 48.dp, height = BarHeight)
+            .clickable(interactionSource = press, indication = null, role = Role.Button, onClickLabel = label, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            painterResource(icon),
+            contentDescription = label,
+            tint = p.ink,
+            modifier = Modifier.size(20.dp).graphicsLayer { scaleX = scale; scaleY = scale },
+        )
+    }
+}
+
+private val FrameWidth = 30.dp // a filmstrip frame that is not the current pin
+private val FrameGap = 3.dp
+
+/**
+ * The other pins as a strip of narrow frames, the current one opened up to its own shape and kept centred.
+ * Tap a frame to go to it; drag the strip to scrub through the pins, the viewer following frame by frame.
+ */
+@Composable
+private fun Filmstrip(pins: List<Pin>, pager: PagerState) {
+    val p = LocalPalette.current
+    val store = LocalContext.current.store
+    val haptics = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+    // Opens already centred on the current pin, rather than sliding there.
+    val strip = rememberLazyListState(
+        initialFirstVisibleItemIndex = pager.currentPage,
+        initialFirstVisibleItemScrollOffset = with(density) { (frameWidth(pins[pager.currentPage]) / 2).roundToPx() },
+    )
+    val dragged by strip.interactionSource.collectIsDraggedAsState()
+    // From the first drag until the strip comes to rest (fling included), the strip leads and the pager follows.
+    var scrubbing by remember { mutableStateOf(false) }
+    LaunchedEffect(dragged) { if (dragged) scrubbing = true }
+    LaunchedEffect(strip) {
+        snapshotFlow { strip.isScrollInProgress }.collect { if (!it) scrubbing = false }
+    }
+    LaunchedEffect(strip) {
+        snapshotFlow { if (scrubbing) centreFrame(strip) else null }
+            .filterNotNull()
+            .distinctUntilChanged()
+            .collect { i ->
+                if (i != pager.currentPage) {
+                    pager.scrollToPage(i)
+                    haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                }
+            }
+    }
+    // Otherwise the pager leads: keep its pin centred (and re-centre once a scrub lets go).
+    val page = pager.currentPage
+    LaunchedEffect(page, scrubbing) {
+        if (scrubbing) return@LaunchedEffect
+        val half = with(density) { (frameWidth(pins.getOrNull(page) ?: return@LaunchedEffect) / 2).roundToPx() }
+        strip.animateScrollToItem(page, half)
+    }
+
+    BoxWithConstraints(Modifier.fillMaxWidth().height(StripHeight)) {
+        LazyRow(
+            state = strip,
+            modifier = Modifier.fillMaxSize(),
+            // Half a screen either side, so the first and last pins can sit in the middle too.
+            contentPadding = PaddingValues(horizontal = maxWidth / 2),
+            horizontalArrangement = Arrangement.spacedBy(FrameGap),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            itemsIndexed(pins, key = { _, pin -> pin.id }, contentType = { _, _ -> "frame" }) { i, pin ->
+                val selected = i == page
+                val width by animateDpAsState(if (selected) frameWidth(pin) else FrameWidth, Motion.snappy(), label = "frame")
+                // The current frame stands a little apart from its neighbours, like a lens over the strip.
+                val margin by animateDpAsState(if (selected) 5.dp else 0.dp, Motion.snappy(), label = "margin")
+                Box(
+                    Modifier
+                        .padding(horizontal = margin)
+                        .width(width)
+                        .fillMaxHeight()
+                        .clip(Corners.frame)
+                        .background(p.fill)
+                        .clickable(onClickLabel = "Show pin ${i + 1} of ${pins.size}") {
+                            if (!selected) scope.launch { pager.animateScrollToPage(i, animationSpec = Motion.smooth()) }
+                        },
+                ) {
+                    AsyncImage(
+                        model = remember(pin.id) { store.thumb(pin) },
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.matchParentSize(),
+                    )
+                    if (pin.video) {
+                        Icon(
+                            painterResource(R.drawable.ic_play),
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.align(Alignment.BottomStart).padding(5.dp).size(8.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** The current pin's frame: its own shape at strip height, within reason. */
+private fun frameWidth(pin: Pin): Dp {
+    val ratio = pin.w.toFloat() / pin.h.coerceAtLeast(1)
+    return (StripHeight * ratio).coerceIn(40.dp, 72.dp)
+}
+
+/** The frame under the middle of the strip. */
+private fun centreFrame(strip: LazyListState): Int? {
+    val info = strip.layoutInfo
+    val centre = (info.viewportStartOffset + info.viewportEndOffset) / 2
+    return info.visibleItemsInfo.minByOrNull { abs(it.offset + it.size / 2 - centre) }?.index
+}
+
+/**
+ * Everything about the pin that isn't the pin: its AI description, board, your note (autosaved as you type)
+ * and where it came from. [focusNote] opens it straight into the note, keyboard up.
+ */
+@kotlin.OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DetailsSheet(pin: Pin, boardName: String?, focusNote: Boolean, onBoard: () -> Unit, onDismiss: () -> Unit) {
     val p = LocalPalette.current
     val store = LocalContext.current.store
     var text by remember(pin.id) { mutableStateOf(pin.note) }
-    var picker by remember(pin.id) { mutableStateOf(false) }
     val latest = rememberUpdatedState(text)
-    val scroll = rememberScrollState()
+    val focus = remember { FocusRequester() }
 
-    // Debounced autosave while typing; the dispose hook catches a quick back-out.
+    // Debounced autosave while typing; the dispose hook catches a quick close.
     LaunchedEffect(text) {
         if (text == pin.note) return@LaunchedEffect
         delay(600)
         store.launch { setNote(pin.id, text) }
     }
     DisposableEffect(pin.id) {
-        onDispose { store.launch { setNote(pin.id, latest.value) } }
+        onDispose { if (latest.value != pin.note) store.launch { setNote(pin.id, latest.value) } }
+    }
+    LaunchedEffect(focusNote) {
+        if (!focusNote) return@LaunchedEffect
+        delay(280) // let the sheet rise first, so the keyboard doesn't race it
+        focus.requestFocus()
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .imePadding()
-            .navigationBarsPadding()
-            .verticalScroll(scroll)
-            .padding(horizontal = 16.dp)
-            .padding(top = 64.dp),
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = frostedSheet(),
+        tonalElevation = 0.dp,
+        shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
+        dragHandle = { BottomSheetDefaults.DragHandle(width = 36.dp, height = 5.dp, color = p.ink3.copy(alpha = 0.5f)) },
     ) {
-        // Scrolled down to the note, a downward drag on the media scrolls back up rather than closing.
-        MediaBox(pin, active, swipe, canDismiss = { scroll.value == 0 })
-        // Everything but the media fades as it is pulled away, so the pin is what travels back.
-        Column(Modifier.graphicsLayer { alpha = if (swipe.id == pin.id) 1f - swipe.dismissProgress else 1f }) {
+        FrostBehind()
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(start = 20.dp, end = 20.dp, bottom = 20.dp),
+        ) {
+            Text(
+                "Details",
+                style = Type.body.copy(fontWeight = FontWeight.SemiBold),
+                color = p.ink,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+            )
             RevealText(pin.caption.orEmpty()) {
-                Text(it, style = Type.body, color = p.ink2, modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 20.dp))
+                Text(it, style = Type.body, color = p.ink2, modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = 20.dp))
             }
-            Spacer(Modifier.height(24.dp))
             Row(
                 Modifier.fillMaxWidth().heightIn(min = 52.dp)
                     .glass(null, Corners.card)
                     .clip(Corners.card)
-                    .clickable(role = Role.Button, onClickLabel = "Change board") { picker = true }
+                    .clickable(role = Role.Button, onClickLabel = "Change board", onClick = onBoard)
                     .padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -282,7 +511,12 @@ private fun PinPage(pin: Pin, boardName: String?, active: Boolean, swipe: MediaS
                 onValueChange = { text = it },
                 textStyle = Type.body.copy(color = p.ink),
                 cursorBrush = SolidColor(p.ink),
-                modifier = Modifier.fillMaxWidth().glass(null, Corners.card).clip(Corners.card).heightIn(min = 104.dp).padding(16.dp),
+                modifier = Modifier.fillMaxWidth()
+                    .focusRequester(focus)
+                    .glass(null, Corners.card)
+                    .clip(Corners.card)
+                    .heightIn(min = 104.dp)
+                    .padding(16.dp),
                 decorationBox = { field ->
                     Box {
                         if (text.isEmpty()) Text("Add a note", style = Type.body, color = p.ink3)
@@ -291,28 +525,27 @@ private fun PinPage(pin: Pin, boardName: String?, active: Boolean, swipe: MediaS
                 },
             )
             Text(
-                "Saved ${savedDate(pin.createdAt)}",
+                buildString {
+                    append("Saved ${savedDate(pin.createdAt)}")
+                    append(" · ${pin.ext.uppercase()}")
+                    if (pin.w > 0 && pin.h > 0) append(" · ${pin.w}×${pin.h}")
+                    if (pin.video && pin.durationMs > 0) append(" · ${formatDuration(pin.durationMs)}")
+                },
                 style = Type.caption,
                 color = p.ink3,
                 modifier = Modifier.padding(start = 4.dp, top = 12.dp),
             )
-            Spacer(Modifier.height(48.dp))
         }
     }
-
-    if (picker) BoardPickerSheet(
-        current = pin.boardId,
-        onPick = { id ->
-            picker = false
-            store.launch { setBoard(listOf(pin.id), id) }
-        },
-        onDismiss = { picker = false },
-    )
 }
 
+/**
+ * The pin's media, as large as the stage allows at its own shape, centred. It moves (by placement) with the
+ * swipe the stage around it feeds.
+ */
 @kotlin.OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-private fun MediaBox(pin: Pin, active: Boolean, swipe: MediaSwipe, canDismiss: () -> Boolean) {
+private fun MediaBox(pin: Pin, active: Boolean, swipe: MediaSwipe) {
     val p = LocalPalette.current
     val store = LocalContext.current.store
     val thumbModel = remember(pin.id) { store.thumb(pin) }
@@ -320,10 +553,7 @@ private fun MediaBox(pin: Pin, active: Boolean, swipe: MediaSwipe, canDismiss: (
     val desc = pin.note.ifBlank { null }
     var zoom by remember(pin.id) { mutableStateOf(false) }
     var loaded by remember(pin.id) { mutableStateOf(false) }
-    val ratio = pin.w.toFloat() / pin.h.coerceAtLeast(1)
-    // Very tall media is capped (and centred) so there is always page left below it to scroll by;
-    // a drag on the media itself is a swipe, not a scroll. Tap to see it whole.
-    val maxHeight = with(LocalDensity.current) { (LocalWindowInfo.current.containerSize.height * 0.72f).toDp() }
+    val ratio = if (pin.w > 0 && pin.h > 0) (pin.w.toFloat() / pin.h).coerceIn(0.05f, 20f) else 1f
     val shared = rememberSharedPin(pin.id)
     DisposableEffect(swipe, pin.id, shared) {
         swipe.handoffs[pin.id] = { velocity -> shared?.prepareTransitionWithInitialVelocity(velocity) }
@@ -332,14 +562,10 @@ private fun MediaBox(pin: Pin, active: Boolean, swipe: MediaSwipe, canDismiss: (
 
     Box(
         Modifier
-            .fillMaxWidth()
-            .wrapContentWidth()
-            // Before the offset, so the gesture is measured in the still slot, not the moving media.
-            .mediaSwipe(swipe, pin.id, canDismiss)
             // Placement, not a layer transform: the shared element reads layout, so a pulled pin flies home from where it is.
             .offset { swipe.mediaOffset(pin.id).round() }
             .sharedPin(shared)
-            .heightIn(max = maxHeight)
+            // Fits the stage both ways: full width for wide media, full height for tall.
             .aspectRatio(ratio)
             .graphicsLayer { val s = swipe.mediaScale(pin.id); scaleX = s; scaleY = s }
             .clip(Corners.media)
@@ -734,4 +960,20 @@ private fun Scrubber(
 
 private fun savedDate(ms: Long): String =
     DateTimeFormatter.ofPattern("d MMM yyyy", Locale.getDefault())
+        .format(Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()))
+
+/** "Today", "Yesterday", or the date (with the year only when it isn't this one). */
+private fun dayLabel(ms: Long): String {
+    val day = Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).toLocalDate()
+    val today = LocalDate.now()
+    return when {
+        day == today -> "Today"
+        day == today.minusDays(1) -> "Yesterday"
+        day.year == today.year -> DateTimeFormatter.ofPattern("d MMMM", Locale.getDefault()).format(day)
+        else -> DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.getDefault()).format(day)
+    }
+}
+
+private fun timeLabel(ms: Long): String =
+    DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(Locale.getDefault())
         .format(Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()))

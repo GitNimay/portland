@@ -102,6 +102,7 @@ object Type {
  */
 object Corners {
     val pill: RoundedRectangularShape = Capsule()
+    val frame: RoundedRectangularShape = RoundedRectangle(7.dp)   // the viewer's filmstrip frames
     val small: RoundedRectangularShape = RoundedRectangle(12.dp)  // thumbnails, inputs, small badges
     val card: RoundedRectangularShape = RoundedRectangle(18.dp)   // pins and board covers in grids
     val media: RoundedRectangularShape = RoundedRectangle(26.dp)  // the viewer's media

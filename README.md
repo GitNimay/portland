@@ -11,7 +11,7 @@ A private, single-user inspiration safe for Android. Save images and videos, sor
 - Links (pasted, or shared to Portland as text) download in the background, even with the app closed: videos from YouTube, X, Instagram, TikTok and the many other sites yt-dlp supports (up to 1080p, H.264, with the site's own cover as the preview), direct image/video URLs, and pages that advertise an image (og:image). Sites that demand a login or a bot check say so in a toast instead of saving a thumbnail
 - Boards, notes, search (notes, AI descriptions, board names, and colours: "blue", "red pink" or "grey")
 - Swipe the feed left and right between Pins and Boards (back on Boards returns to Pins)
-- Viewer: swipe between pins, pinch-zoom images, looping video with a draggable timeline and double-tap to skip 10s back or forward
+- Viewer: gallery-style, with the media centred between a slim top bar (when it was saved) and a filmstrip of the other pins (tap a frame, or drag the strip to scrub) over a glass action bar (share · board, note, delete · details). Swipe between pins, pinch-zoom images, looping video with a draggable timeline and double-tap to skip 10s back or forward
 - In the viewer, pull a pin down to fly it back into the grid; push it up for the send shelf (send with the system share sheet, save to the gallery, copy the image). Both also work in the full-screen zoom
 - Long-press to select several pins, then add them to a board or delete them in one go
 - Every pin is backed up to Cloudflare R2; a fresh install restores the whole library

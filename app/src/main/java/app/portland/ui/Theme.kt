@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.WindowCompat
 import app.portland.R
 import app.portland.data.Prefs
 import app.portland.data.ThemeMode
@@ -334,11 +335,28 @@ fun FrostBehind(progress: () -> Float = { 1f }, radius: Dp = 28.dp) {
     val view = LocalView.current
     val maxPx = with(LocalDensity.current) { radius.toPx() }
     val read by rememberUpdatedState(progress)
-    LaunchedEffect(view, blur, maxPx) {
-        val window = ((view.parent as? DialogWindowProvider) ?: (view as? DialogWindowProvider))?.window ?: return@LaunchedEffect
+    val window = remember(view) { ((view.parent as? DialogWindowProvider) ?: (view as? DialogWindowProvider))?.window }
+    // A dialog dims its own window; a bottom sheet draws its scrim in Compose and has no dim layer. Read once,
+    // before this function adds the flag itself.
+    val windowDims = remember(window) { window != null && window.attributes.flags and WindowManager.LayoutParams.FLAG_DIM_BEHIND != 0 }
+    // Start from nothing before the window's first frame (effects apply before it draws), so a dialog never
+    // flashes its theme's default dim before the eased one below takes over.
+    DisposableEffect(window) {
+        window?.attributes = window?.attributes?.apply { dimAmount = 0f; blurBehindRadius = 0 }
+        onDispose {}
+    }
+    LaunchedEffect(window, blur, maxPx) {
+        window ?: return@LaunchedEffect
         if (blur) window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
         else window.clearFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-        val dim = if (blur) BlurDim else SolidDim
+        // The system draws blur-behind on the window's dim layer, and skips a dim layer with zero alpha, so a
+        // sheet gets a dim layer too: just enough alpha to carry the blur, invisible on top of its own scrim.
+        if (blur && !windowDims) window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        val dim = when {
+            !windowDims -> CarrierDim
+            blur -> BlurDim
+            else -> SolidDim
+        }
         // Whole pixels, and a dim quantised to the same steps: at most ~radius updates per open or close.
         snapshotFlow { (read().coerceIn(0f, 1f) * maxPx).roundToInt() }.collect { px ->
             window.attributes = window.attributes.apply {
@@ -349,8 +367,26 @@ fun FrostBehind(progress: () -> Float = { 1f }, radius: Dp = 28.dp) {
     }
 }
 
+/**
+ * Keeps a dialog or sheet window's status and navigation bar icons readable when the theme changes while it is
+ * open (a sheet window picks its icon colours when it is created). Call from inside the window's content.
+ */
+@Composable
+fun SyncWindowBars() {
+    val view = LocalView.current
+    val dark = LocalPalette.current.dark
+    LaunchedEffect(view, dark) {
+        val window = ((view.parent as? DialogWindowProvider) ?: (view as? DialogWindowProvider))?.window ?: return@LaunchedEffect
+        WindowCompat.getInsetsController(window, view).apply {
+            isAppearanceLightStatusBars = !dark
+            isAppearanceLightNavigationBars = !dark
+        }
+    }
+}
+
 private const val BlurDim = 0.18f
 private const val SolidDim = 0.32f
+private const val CarrierDim = 0.01f
 
 /**
  * [FrostBehind] for a bottom sheet's content: the frost follows how far the sheet has risen into the window,

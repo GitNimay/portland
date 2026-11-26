@@ -20,6 +20,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -63,14 +65,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -186,6 +187,7 @@ fun SettingsSheet(onDismiss: () -> Unit) {
         shape = RoundedCornerShape(topStart = Corners.sheetRadius, topEnd = Corners.sheetRadius),
         dragHandle = { BottomSheetDefaults.DragHandle(width = 36.dp, height = 5.dp, color = p.ink3.copy(alpha = 0.5f)) },
     ) {
+        SyncWindowBars() // the theme can change while this sheet is open
         Column(
             Modifier
                 .frostBehindSheet()
@@ -202,10 +204,7 @@ fun SettingsSheet(onDismiss: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             )
 
-            SettingsGroup(
-                header = "Appearance",
-                footer = "Solid surfaces instead of glass and blur: easier to read, and lighter on older phones.",
-            ) {
+            SettingsGroup(header = "Appearance") {
                 ThemePicker(
                     selected = prefs.theme,
                     onSelect = { mode ->
@@ -220,19 +219,17 @@ fun SettingsSheet(onDismiss: () -> Unit) {
                     icon = R.drawable.ic_transparency,
                     tile = if (p.dark) Color(0xFF0A84FF) else Color(0xFF007AFF),
                     title = "Reduce transparency",
-                    role = Role.Switch,
+                    checked = prefs.reduceTransparency,
                     onClick = ::toggleReduceTransparency,
                 ) { PillSwitch(checked = prefs.reduceTransparency) }
             }
 
-            SettingsGroup(
-                footer = if (hasPermission && systemEnabled) "A pin you saved comes back now and then: twice a day at most, never at night." else null,
-            ) {
+            SettingsGroup {
                 SettingsRow(
                     icon = R.drawable.ic_bell,
                     tile = if (p.dark) Color(0xFFFF453A) else Color(0xFFFF3B30),
                     title = "Notifications",
-                    role = Role.Switch,
+                    checked = notificationsActive,
                     onClick = ::toggleNotifications,
                 ) { PillSwitch(checked = notificationsActive) }
                 RowDivider()
@@ -240,35 +237,32 @@ fun SettingsSheet(onDismiss: () -> Unit) {
                     icon = R.drawable.ic_vibrate,
                     tile = if (p.dark) Color(0xFFFF375F) else Color(0xFFFF2D55),
                     title = "Haptics",
-                    role = Role.Switch,
+                    checked = prefs.haptics,
                     onClick = ::toggleHaptics,
                 ) { PillSwitch(checked = prefs.haptics) }
             }
             if (!hasPermission || !systemEnabled) {
                 Text(
-                    "Notifications are off in Android settings · Open",
+                    "Off in Android settings · Open",
                     style = Type.footnote,
                     color = p.ink3,
                     modifier = Modifier
-                        .padding(start = 16.dp, end = 16.dp, top = 8.dp)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
                             role = Role.Button,
                             onClick = { openNotificationSettings(context) },
-                        ),
+                        )
+                        // A full-height touch target around one line of footnote.
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
                 )
             }
 
-            SettingsGroup(
-                header = "Storage",
-                footer = "Images saved on this phone and in your backup are kept; only downloaded copies are removed.",
-            ) {
+            SettingsGroup(header = "Storage") {
                 SettingsRow(
                     icon = R.drawable.ic_storage,
                     tile = Color(0xFF8E8E93),
                     title = "Image cache",
-                    role = Role.Button,
                     enabled = (cacheBytes ?: 0L) > 0L,
                     onClick = { confirmClear = true },
                 ) {
@@ -293,7 +287,7 @@ fun SettingsSheet(onDismiss: () -> Unit) {
     if (confirmClear) {
         PortlandDialog(
             title = "Clear image cache?",
-            body = "Your pins stay. Their images download again from your backup when you next see them.",
+            body = "Images download again when needed.",
             confirmLabel = "Clear",
             onConfirm = {
                 confirmClear = false
@@ -307,11 +301,14 @@ fun SettingsSheet(onDismiss: () -> Unit) {
     }
 }
 
+/** Apple's system green: switches that are on, the chosen option. */
+@Composable
+private fun settingsGreen(): Color = if (LocalPalette.current.dark) Color(0xFF30D158) else Color(0xFF34C759)
+
 /** A titled, inset-grouped card of rows, as in iOS Settings. */
 @Composable
 private fun SettingsGroup(
     header: String? = null,
-    footer: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val p = LocalPalette.current
@@ -332,27 +329,19 @@ private fun SettingsGroup(
             .background(p.cell),
         content = content,
     )
-    if (footer != null) {
-        Text(
-            footer,
-            style = Type.footnote,
-            color = p.ink3,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 7.dp),
-        )
-    }
 }
 
 /**
  * One row: a coloured icon tile, a title, and [trailing] (a switch, a value). The whole row is the touch target
- * and greys under the finger, as iOS rows do.
+ * and greys under the finger, as iOS rows do. With [checked] it is a switch: screen readers hear "on" or "off".
  */
 @Composable
 private fun SettingsRow(
     @DrawableRes icon: Int,
     tile: Color,
     title: String,
-    role: Role,
     onClick: () -> Unit,
+    checked: Boolean? = null,
     enabled: Boolean = true,
     trailing: @Composable () -> Unit,
 ) {
@@ -360,6 +349,11 @@ private fun SettingsRow(
     val press = remember { MutableInteractionSource() }
     val pressed by press.collectIsPressedAsState()
     val wash by animateFloatAsState(if (pressed) 1f else 0f, Motion.press(), label = "rowPress")
+    val action = if (checked != null) {
+        Modifier.toggleable(value = checked, interactionSource = press, indication = null, enabled = enabled, role = Role.Switch) { onClick() }
+    } else {
+        Modifier.clickable(interactionSource = press, indication = null, enabled = enabled, role = Role.Button, onClickLabel = title, onClick = onClick)
+    }
     Row(
         Modifier
             .fillMaxWidth()
@@ -368,7 +362,7 @@ private fun SettingsRow(
                 val w = wash.coerceIn(0f, 1f)
                 if (w > 0f) drawRect(p.fill, alpha = w)
             }
-            .clickable(interactionSource = press, indication = null, enabled = enabled, role = role, onClickLabel = title, onClick = onClick)
+            .then(action)
             .padding(start = 14.dp, end = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -409,10 +403,7 @@ private fun RowDivider(inset: Dp = 58.dp) {
     )
 }
 
-/**
- * Light / Dark / System, as in iOS's Display & Brightness: a small picture of the app in each look, a label and
- * a check circle under each. System shows both halves.
- */
+/** System / Light / Dark: a small Android phone showing Portland in each look, a label and a check under each. */
 @Composable
 private fun ThemePicker(selected: ThemeMode, onSelect: (ThemeMode) -> Unit) {
     Row(
@@ -435,72 +426,105 @@ private fun ThemeOption(mode: ThemeMode, selected: Boolean, onClick: () -> Unit)
         ThemeMode.Light -> "Light"
         ThemeMode.Dark -> "Dark"
     }
+    val green = settingsGreen()
     val press = remember { MutableInteractionSource() }
     val pressed by press.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) 0.95f else 1f, Motion.press(), label = "themePress")
-    val ring by animateColorAsState(if (selected) p.ink else p.line, Motion.snappy(), label = "themeRing")
+    val ring by animateFloatAsState(if (selected) 1f else 0f, Motion.snappy(), label = "themeRing")
     Column(
         Modifier
-            .widthIn(max = 84.dp)
-            .semantics {
-                this.selected = selected
-                stateDescription = if (selected) "Selected" else "Not selected"
-            }
-            .clickable(interactionSource = press, indication = null, role = Role.RadioButton, onClickLabel = label, onClick = onClick),
+            .widthIn(max = 88.dp)
+            .selectable(selected = selected, interactionSource = press, indication = null, role = Role.RadioButton, onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Canvas(
             Modifier
-                .width(64.dp)
-                .aspectRatio(0.56f)
-                .graphicsLayer { scaleX = scale; scaleY = scale }
-                .border(if (selected) 2.dp else 1.dp, ring, PreviewShape)
-                .padding(4.dp)
-                .clip(PreviewInnerShape),
+                .width(70.dp)
+                .aspectRatio(0.5f)
+                .graphicsLayer { scaleX = scale; scaleY = scale },
         ) {
-            when (mode) {
-                ThemeMode.Light -> drawAppPreview(dark = false)
-                ThemeMode.Dark -> drawAppPreview(dark = true)
-                ThemeMode.System -> {
-                    clipRect(right = size.width / 2f) { drawAppPreview(dark = false) }
-                    clipRect(left = size.width / 2f) { drawAppPreview(dark = true) }
+            val inset = 4.dp.toPx() // room for the selection ring around the phone
+            val r = ring.coerceIn(0f, 1f)
+            if (r > 0f) {
+                val stroke = 2.dp.toPx()
+                drawRoundRect(
+                    green.copy(alpha = r),
+                    topLeft = Offset(stroke / 2f, stroke / 2f),
+                    size = Size(size.width - stroke, size.height - stroke),
+                    cornerRadius = CornerRadius(16.dp.toPx()),
+                    style = Stroke(stroke),
+                )
+            }
+            translate(inset, inset) {
+                val phone = Size(size.width - inset * 2, size.height - inset * 2)
+                when (mode) {
+                    ThemeMode.Light -> drawPhone(phone, dark = false)
+                    ThemeMode.Dark -> drawPhone(phone, dark = true)
+                    ThemeMode.System -> {
+                        clipRect(right = phone.width / 2f) { drawPhone(phone, dark = false) }
+                        clipRect(left = phone.width / 2f) { drawPhone(phone, dark = true) }
+                    }
                 }
             }
         }
         Text(label, style = Type.footnote, color = p.ink, modifier = Modifier.padding(top = 8.dp, bottom = 8.dp))
-        CheckCircle(selected)
+        CheckCircle(selected, green)
     }
 }
 
-private val PreviewShape = RoundedRectangle(14.dp)
-private val PreviewInnerShape = RoundedRectangle(10.dp)
+// Soft photo colours for the preview's pins, per look.
+private val LightPhotos = listOf(Color(0xFFBFD7F2), Color(0xFFF4CDBD), Color(0xFFCFE4CC), Color(0xFFE2D7F4), Color(0xFFF5E2AE), Color(0xFFC6E2E6))
+// Photo heights per column, in layout units: a staggered masonry like the real feed.
+private val PhotoHeights = arrayOf(floatArrayOf(8f, 6f, 9f, 7f), floatArrayOf(6f, 9f, 6.5f, 8f))
+private val DarkPhotos = listOf(Color(0xFF2B4361), Color(0xFF5A3A2E), Color(0xFF2E4A33), Color(0xFF41365C), Color(0xFF5A4C26), Color(0xFF244A50))
 
-/** A tiny Portland: a title bar and a two-column masonry of cards on the canvas of each look. */
-private fun DrawScope.drawAppPreview(dark: Boolean) {
-    val canvas = if (dark) Color.Black else Color(0xFFF7F7F4)
-    val card = if (dark) Color(0xFF2C2C2E) else Color(0xFFE4E3DE)
-    val ink = if (dark) Color.White.copy(alpha = 0.85f) else Color.Black.copy(alpha = 0.8f)
-    drawRect(canvas)
-    val pad = size.width * 0.12f
-    val gap = size.width * 0.06f
-    val r = CornerRadius(size.width * 0.06f)
-    // "Portland"
-    drawRoundRect(ink, Offset(pad, size.height * 0.08f), Size(size.width * 0.46f, size.height * 0.045f), CornerRadius(size.height * 0.02f))
-    val colW = (size.width - pad * 2 - gap) / 2f
-    val top = size.height * 0.2f
-    val heights = floatArrayOf(0.26f, 0.18f, 0.2f, 0.28f, 0.22f, 0.2f)
-    for (col in 0..1) {
-        var y = top
-        for (i in 0 until 3) {
-            val h = size.height * heights[col * 3 + i]
-            drawRoundRect(card, Offset(pad + col * (colW + gap), y), Size(colW, h), r)
-            y += h + gap
+/**
+ * A small Android phone: a dark frame, a punch-hole camera over the status bar, the Portland title, a two-column
+ * masonry of photos and the gesture bar, in the canvas colours of each look.
+ */
+private fun DrawScope.drawPhone(phone: Size, dark: Boolean) {
+    val w = phone.width
+    val h = phone.height
+    // Frame
+    drawRoundRect(if (dark) Color(0xFF2A2A2C) else Color(0xFF1C1C1E), size = phone, cornerRadius = CornerRadius(w * 0.2f))
+    // Screen
+    val bezel = w * 0.045f
+    val sw = w - bezel * 2
+    val sh = h - bezel * 2
+    translate(bezel, bezel) {
+        drawRoundRect(if (dark) Color.Black else Color(0xFFF7F7F4), size = Size(sw, sh), cornerRadius = CornerRadius(sw * 0.17f))
+        val ink = if (dark) Color.White else Color.Black
+        val u = sw / 20f // layout unit
+        // Status bar: time on the left, signal and battery on the right, the camera hole in the middle.
+        val statusY = u * 1.6f
+        drawRoundRect(ink.copy(alpha = 0.7f), Offset(u * 2f, statusY - u * 0.35f), Size(u * 2.6f, u * 0.7f), CornerRadius(u * 0.35f))
+        drawRoundRect(ink.copy(alpha = 0.7f), Offset(sw - u * 4.6f, statusY - u * 0.35f), Size(u * 2.6f, u * 0.7f), CornerRadius(u * 0.35f))
+        drawCircle(Color.Black, radius = u * 0.75f, center = Offset(sw / 2f, statusY))
+        if (dark) drawCircle(Color(0xFF2A2A2C), radius = u * 0.75f, center = Offset(sw / 2f, statusY), style = Stroke(u * 0.2f))
+        // "Portland"
+        drawRoundRect(ink.copy(alpha = 0.85f), Offset(u * 2f, u * 3.6f), Size(u * 8.5f, u * 1.3f), CornerRadius(u * 0.65f))
+        // Masonry of photos
+        val photos = if (dark) DarkPhotos else LightPhotos
+        val gap = u * 0.9f
+        val colW = (sw - u * 4f - gap) / 2f
+        val heights = PhotoHeights
+        val bottom = sh - u * 3f
+        for (col in 0..1) {
+            var y = u * 6.2f
+            for (i in heights[col].indices) {
+                if (y >= bottom - u) break // the feed runs on under the gesture bar, like a real one
+                val ph = minOf(u * heights[col][i], bottom - y)
+                drawRoundRect(photos[(col * 3 + i) % photos.size], Offset(u * 2f + col * (colW + gap), y), Size(colW, ph), CornerRadius(u * 1.1f))
+                y += ph + gap
+            }
         }
+        // Gesture navigation bar
+        drawRoundRect(ink.copy(alpha = 0.6f), Offset(sw / 2f - u * 3.5f, sh - u * 1.6f), Size(u * 7f, u * 0.5f), CornerRadius(u * 0.25f))
     }
 }
 
 @Composable
-private fun CheckCircle(checked: Boolean) {
+private fun CheckCircle(checked: Boolean, green: Color) {
     val p = LocalPalette.current
     val fill by animateFloatAsState(if (checked) 1f else 0f, Motion.snappy(), label = "check")
     Box(
@@ -519,19 +543,20 @@ private fun CheckCircle(checked: Boolean) {
                     scaleY = 0.6f + 0.4f * f
                 }
                 .clip(CircleShape)
-                .background(p.ink),
+                .background(green),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(painterResource(R.drawable.ic_check), contentDescription = null, tint = p.canvas, modifier = Modifier.size(12.dp))
+            Icon(painterResource(R.drawable.ic_check), contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
         }
     }
 }
 
+/** iOS-style switch: green when on, a white thumb either way. */
 @Composable
 private fun PillSwitch(checked: Boolean) {
     val p = LocalPalette.current
-    val track by animateColorAsState(if (checked) p.ink else p.fill, Motion.snappy(), label = "track")
-    val thumb by animateColorAsState(if (checked) p.canvas else Color.White, Motion.snappy(), label = "thumb")
+    val off = if (p.dark) Color(0xFF39393D) else Color(0xFFE9E9EB)
+    val track by animateColorAsState(if (checked) settingsGreen() else off, Motion.snappy(), label = "track")
     val offset by animateDpAsState(if (checked) 18.dp else 0.dp, Motion.snappy(), label = "thumbX")
     Box(
         Modifier
@@ -548,7 +573,7 @@ private fun PillSwitch(checked: Boolean) {
                 .size(22.dp)
                 .shadow(2.dp, CircleShape, ambientColor = Color.Black.copy(0.12f), spotColor = Color.Black.copy(0.18f))
                 .clip(CircleShape)
-                .background(thumb),
+                .background(Color.White),
         )
     }
 }

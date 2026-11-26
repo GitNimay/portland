@@ -441,16 +441,17 @@ object Reminders {
     }
 
     /** Called on every foreground; persisted at most every [ReminderPolicy.ACTIVE_RECORD_INTERVAL_MS], off the main thread. */
-    fun recordAppActive(context: Context, nowMs: Long = System.currentTimeMillis()) {
-        if (!ReminderPolicy.shouldRecordActive(lastActiveRecordedAt, nowMs)) return
+    /** [force] skips the throttle: leaving the app always counts, so the quiet hour runs from the last visit. */
+    fun recordAppActive(context: Context, nowMs: Long = System.currentTimeMillis(), force: Boolean = false) {
+        if (!force && !ReminderPolicy.shouldRecordActive(lastActiveRecordedAt, nowMs)) return
         lastActiveRecordedAt = nowMs
         val app = context.applicationContext
-        io.launch { markActive(app, nowMs) }
+        io.launch { markActive(app, nowMs, force) }
     }
 
-    internal fun markActive(app: Context, nowMs: Long) {
+    internal fun markActive(app: Context, nowMs: Long, force: Boolean = false) {
         updateState(app) { s ->
-            if (ReminderPolicy.shouldRecordActive(s.lastAppActiveAt, nowMs)) s.copy(lastAppActiveAt = nowMs) else s
+            if (force || ReminderPolicy.shouldRecordActive(s.lastAppActiveAt, nowMs)) s.copy(lastAppActiveAt = nowMs) else s
         }
     }
 

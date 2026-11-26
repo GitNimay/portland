@@ -180,8 +180,9 @@ private fun Intro(clock: () -> Float, onSkip: () -> Unit) {
     val store = LocalContext.current.store
     // The newest pins; an empty library still gets a ring of quiet placeholder tiles.
     val thumbs = remember { store.library.value.pins.take(CARDS).map(store::thumb) }
-    // The window colour, not the palette's: it is what the system splash showed a frame ago.
-    val canvas = colorResource(R.color.canvas)
+    // The in-app theme's canvas: on 12+ it is also what the splash showed (app night mode); on 11 the theme can
+    // differ from the system, and the disc and mark below already follow the palette.
+    val canvas = p.canvas
 
     Box(
         Modifier

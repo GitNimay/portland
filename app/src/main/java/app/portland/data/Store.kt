@@ -14,6 +14,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -85,7 +86,8 @@ class Store(private val app: Context) {
             version.incrementAndGet() // after the swap: a save that reads this version also reads this state
         }
         if (mine == 0L) return
-        persist(mine)
+        // The new state is already live in memory; finish writing it even if the caller is cancelled meanwhile.
+        withContext(NonCancellable) { persist(mine) }
         if (sync) Sync.schedule(app)
     }
 

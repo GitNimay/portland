@@ -1,0 +1,58 @@
+name: PR Labeler
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: labeler-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label:
+    name: Label PR
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    steps:
+      - name: Apply area & type labels
+        uses: actions/labeler@v7
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          sync-labels: true
+
+      - name: Apply size & bot labels
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const pull_number = context.payload.pull_request.number;
+
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number });
+            const changedLines = (pr.additions || 0) + (pr.deletions || 0);
+
+            const targetSize =
+              changedLines < 30 ? 'size/XS' :
+              changedLines < 150 ? 'size/S' :
+              changedLines < 500 ? 'size/M' :
+              changedLines < 1500 ? 'size/L' : 'size/XL';
+
+            const existing = pr.labels.map(l => l.name);
+            const staleSizes = existing.filter(name => name.startsWith('size/') && name !== targetSize);
+
+            for (const name of staleSizes) {
+              await github.rest.issues.removeLabel({ owner, repo, issue_number: pull_number, name });
+            }
+
+            const toAdd = [];
+            if (!existing.includes(targetSize)) toAdd.push(targetSize);
+            if (pr.user?.login === 'dependabot[bot]' && !existing.includes('type/deps')) {
+              toAdd.push('type/deps');
+            }
+
+            if (toAdd.length > 0) {
+              await github.rest.issues.addLabels({ owner, repo, issue_number: pull_number, labels: toAdd });
+            }

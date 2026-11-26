@@ -1,0 +1,9 @@
+# Hand-written baseline profile (no device was available to record one): AOT-compile the app's own code and the
+# two UI libraries that ship no profile of their own. Compose, Coil, OkHttp, WorkManager etc. bring their own.
+# Replace with a generated profile (Macrobenchmark BaselineProfileRule) when a device is at hand.
+HSPLapp/portland/**;->**(**)**
+Lapp/portland/**;
+HSPLcom/kyant/**;->**(**)**
+Lcom/kyant/**;
+HSPLme/saket/telephoto/**;->**(**)**
+Lme/saket/telephoto/**;

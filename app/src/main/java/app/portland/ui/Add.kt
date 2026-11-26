@@ -47,6 +47,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -73,7 +74,11 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.constrainHeight
+import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.dp
 import app.portland.R
 import app.portland.data.Links
@@ -143,7 +148,8 @@ fun BoxScope.AddMenu(backdrop: Backdrop, boardId: String?, visible: Boolean = tr
         clipboard.getClipEntry()?.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
 
     // The scrim dims the feed and closes everything on a tap outside.
-    if (t > 0.01f) {
+    val scrimOn by remember { derivedStateOf { t > 0.01f } }
+    if (scrimOn) {
         Box(
             Modifier
                 .fillMaxSize()
@@ -180,10 +186,15 @@ fun BoxScope.AddMenu(backdrop: Backdrop, boardId: String?, visible: Boolean = tr
             Row(
                 Modifier
                     .offset { IntOffset(shake.value.roundToInt(), 0) }
-                    .width(width.coerceAtLeast(FabSize))
-                    .height(FabSize)
+                    // Width is read in layout, so the morph never recomposes the contents.
+                    .layout { m, c ->
+                        val w = c.constrainWidth(width.coerceAtLeast(FabSize).roundToPx())
+                        val h = c.constrainHeight(FabSize.roundToPx())
+                        val pl = m.measure(Constraints.fixed(w, h))
+                        layout(w, h) { pl.place(0, 0) }
+                    }
                     // Clear glass as a button; frosted as it opens, so icons and text read over any feed.
-                    .glass(backdrop, MorphShape, scale = { scale }, frost = t)
+                    .glass(backdrop, MorphShape, scale = { scale }, frostOf = { t })
                     .clip(MorphShape),
                 verticalAlignment = Alignment.CenterVertically,
             ) {

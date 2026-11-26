@@ -13,6 +13,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import app.portland.App
 import app.portland.BuildConfig
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -95,6 +96,8 @@ class CaptionWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                             ?: (if (R2.enabled && pin.synced) R2.get(pin.thumbKey) else null)
                             ?: return@withPermit // thumb not available yet; a later run picks it up
                         store.setCaption(pin.id, Captions.describe(thumb))
+                    } catch (e: CancellationException) {
+                        throw e // stopped by the system: not a verdict on this pin
                     } catch (e: IOException) {
                         Log.w("Captions", "will retry ${pin.id}", e)
                         retry.set(true)

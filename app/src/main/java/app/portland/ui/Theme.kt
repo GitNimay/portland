@@ -42,6 +42,8 @@ import com.kyant.backdrop.shadow.Shadow
 import android.view.WindowManager
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -204,6 +206,7 @@ fun Modifier.glass(
     tint: Color = Color.Unspecified,
     scale: () -> Float = { 1f },
     frost: Float = 0f,
+    frostOf: (() -> Float)? = null, // draw-time frost (overrides [frost]): animate it without recomposing
 ): Modifier {
     val p = LocalPalette.current
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
@@ -214,13 +217,12 @@ fun Modifier.glass(
             .background(solid)
             .border(0.5.dp, p.line, shape)
     }
-    val f = frost.coerceIn(0f, 1f)
     val clear = when {
         tint != Color.Unspecified -> tint
         backdrop == null -> p.glassFlat
         else -> p.glass
     }
-    val surface = if (f > 0f) androidx.compose.ui.graphics.lerp(clear, p.glassRegular, f) else clear
+    val regular = p.glassRegular
     val dark = p.dark
     return this.drawBackdrop(
         backdrop = backdrop ?: emptyBackdrop(),
@@ -228,6 +230,7 @@ fun Modifier.glass(
         effects = {
             if (backdrop != null) {
                 colorControls(brightness = if (dark) 0f else 0.06f, saturation = 1.6f)
+                val f = (frostOf?.invoke() ?: frost).coerceIn(0f, 1f)
                 blur((1.5f + (RegularBlur - 1.5f) * f).dp.toPx())
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     val radius = size.minDimension / 2f
@@ -242,7 +245,10 @@ fun Modifier.glass(
         highlight = { Highlight.Default },
         shadow = { if (backdrop != null) Shadow.Default else null },
         layerBlock = { val s = scale(); scaleX = s; scaleY = s },
-        onDrawSurface = { drawRect(surface) },
+        onDrawSurface = {
+            val f = (frostOf?.invoke() ?: frost).coerceIn(0f, 1f)
+            drawRect(if (f > 0f) androidx.compose.ui.graphics.lerp(clear, regular, f) else clear)
+        },
     )
 }
 
@@ -302,6 +308,9 @@ half4 main(float2 coord) {
 fun Modifier.scrollEdge(backdrop: Backdrop, visible: () -> Float): Modifier {
     val p = LocalPalette.current
     val canvas = p.canvas
+    // Nothing under the header yet: skip the blur and shader passes entirely (recomposes only when this flips).
+    val active by remember(visible) { derivedStateOf { visible() > 0.001f } }
+    if (!active) return this
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
         return this
             .graphicsLayer { alpha = visible() }

@@ -16,6 +16,10 @@ fun field(key: String) = "\"${secret(key).orEmpty()}\""
 // CI passes the run number so every published build is newer than the last.
 val ciVersion = System.getenv("VERSION_CODE")?.toInt()
 
+composeCompiler {
+    stabilityConfigurationFiles.add(layout.projectDirectory.file("compose-stability.conf"))
+}
+
 android {
     namespace = "app.portland"
     compileSdk {
@@ -59,7 +63,10 @@ android {
     packaging {
         // yt-dlp's Python runtime is loaded from extracted files, not mapped from the APK.
         jniLibs.useLegacyPackaging = true
+        resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}", "DebugProbesKt.bin") // licence/debug leftovers of dependencies
     }
+    // The app is English-only; dependencies bring dozens of unused translations.
+    androidResources.localeFilters += "en"
     buildFeatures {
         compose = true
         buildConfig = true

@@ -15,6 +15,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkRequest
 import androidx.work.WorkerParameters
 import app.portland.App
+import kotlinx.coroutines.CancellationException
 import java.util.concurrent.TimeUnit
 
 /**
@@ -49,10 +50,12 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
             purgeDeleted(store)
             // Only a library known to be complete may decide what is an orphan, so no sweep without a readable index.
             if (syncIndex(store)) {
-                runCatching { sweepOrphans(store) }.onFailure { Log.w("Sync", "orphan sweep failed", it) } // housekeeping; never fails the sync
+                runCatching { sweepOrphans(store) }.onFailure { if (it is CancellationException) throw it; Log.w("Sync", "orphan sweep failed", it) } // housekeeping; never fails the sync
             }
             store.indexColors() // pins that just arrived from another install
             Result.success()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w("Sync", "sync failed (attempt $runAttemptCount)", e)
             if (runAttemptCount < 5) Result.retry() else Result.failure()

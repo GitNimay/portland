@@ -48,6 +48,8 @@ sealed interface Screen {
         override val key = "home"
     }
 
+    // Equal screens share a key on purpose: re-opening one that is still animating out makes AnimatedContent reuse
+    // that composition, so a screen (and its shared elements) is never on screen twice.
     data class Board(val id: String) : Screen {
         override val key get() = "board:$id"
     }
@@ -67,6 +69,7 @@ class Nav(private val saved: SaveableStateHolder) {
         private set
 
     fun push(s: Screen) {
+        if (s == stack.last()) return // a double tap would otherwise need two backs
         forward = true
         stack += s
     }

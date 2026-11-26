@@ -12,6 +12,7 @@ import android.util.Log
 import androidx.core.content.IntentCompat
 import app.portland.BuildConfig
 import app.portland.MainActivity
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -63,6 +64,8 @@ object Updater {
                     if (!(apk.exists() && sha256(apk) == release.sha256)) download(release, apk)
                 }
                 _ready.value = release
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.w("Updater", "update check failed", e)
             }
@@ -80,8 +83,8 @@ object Updater {
             return
         }
         val context = activity.applicationContext
-        relaunchMarker(context).createNewFile()
         withContext(Dispatchers.IO) {
+            relaunchMarker(context).createNewFile()
             val apk = apkFile(context)
             if (sha256(apk) != release.sha256) throw IOException("update apk changed on disk")
             val installer = pm.packageInstaller
@@ -143,7 +146,7 @@ class InstallStatusReceiver : BroadcastReceiver() {
         when (val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 val confirm = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_INTENT, Intent::class.java)
-                if (confirm != null && Updater.foreground) context.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                if (confirm != null && Updater.foreground) runCatching { context.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
             }
             PackageInstaller.STATUS_SUCCESS -> Unit // this process is replaced by the new version
             else -> Log.w("Updater", "install failed ($status): ${intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)}")

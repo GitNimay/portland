@@ -190,7 +190,8 @@ fun DetailScreen(ids: List<String>, start: Int) {
     val pager = rememberPagerState(initialPage = start.coerceIn(0, pins.lastIndex)) { pins.size }
     LaunchedEffect(pins.size) { if (pager.currentPage > pins.lastIndex) pager.scrollToPage(pins.lastIndex) }
     // One player for the whole viewer (swapped between videos), not one built and released per page.
-    val player = if (pins.any { it.video }) rememberViewerPlayer() else null
+    val hasVideo = remember(pins) { pins.any { it.video } }
+    val player = if (hasVideo) rememberViewerPlayer() else null
     val current = pins.getOrNull(pager.currentPage) ?: pins.first()
     val boardName = lib.boards.firstOrNull { it.id == current.boardId }?.name
     var details by remember { mutableStateOf<DetailsOpen?>(null) }
@@ -401,7 +402,6 @@ private fun Filmstrip(pins: List<Pin>, pager: PagerState) {
             }
     }
     // Otherwise the pager leads: keep its target pin centred without restarting mid-flight on distant taps.
-    val page = pager.currentPage
     val targetPage = pager.targetPage
     LaunchedEffect(targetPage, scrubbing) {
         if (scrubbing) return@LaunchedEffect
@@ -419,7 +419,9 @@ private fun Filmstrip(pins: List<Pin>, pager: PagerState) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             itemsIndexed(pins, key = { _, pin -> pin.id }, contentType = { _, _ -> "frame" }) { i, pin ->
-                val selected = i == page
+                // Per frame, so a page change recomposes the two frames it opens and closes, not every frame on
+                // screen (a scrub through the strip changes the page once per frame it passes).
+                val selected by remember(i, pager) { derivedStateOf { i == pager.currentPage } }
                 // 0 = a narrow frame, 1 = opened up to the pin's shape and standing a little apart, like a lens.
                 val open by animateFloatAsState(if (selected) 1f else 0f, Motion.snappy(), label = "frame")
                 val wide = frameWidth(pin)
@@ -846,7 +848,8 @@ private fun VideoLayer(pin: Pin, active: Boolean, player: ExoPlayer, modifier: M
     LaunchedEffect(pin.id, active) {
         if (!active) return@LaunchedEffect
         val file = store.mediaFile(pin)
-        if (file.exists()) {
+        // Checked off the main thread: a disk stat as the page settles can cost a frame on a busy device.
+        if (withContext(Dispatchers.IO) { file.exists() }) {
             player.setMediaItem(MediaItem.fromUri(Uri.fromFile(file)))
         } else {
             val factory = withContext(Dispatchers.IO) { VideoCache.mediaSourceFactory(context) }

@@ -1,6 +1,7 @@
 package app.portland.ui
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.database.ContentObserver
 import android.media.AudioAttributes
@@ -63,6 +64,8 @@ private class Prim(val id: Int, val scale: Float, val delayMs: Int = 0)
 /** [legacy] is the View constant for Android 11–13, [modern] for 14+; -1 stays silent. */
 private class Spec(val prims: List<Prim>, val legacy: Int, val modern: Int = legacy, val rich: Boolean = false, val busyMs: Long = 15)
 
+// The API 34 constants ([Spec.modern]) are only ever passed on API 34+; see [Haptics.play].
+@SuppressLint("InlinedApi")
 private val Specs: Map<Fx, Spec> = mapOf(
     Fx.Tick to Spec(listOf(Prim(Composition.PRIMITIVE_TICK, 0.5f)), H.CLOCK_TICK, H.SEGMENT_TICK),
     Fx.Detent to Spec(listOf(Prim(Composition.PRIMITIVE_TICK, 0.5f)), -1, H.SEGMENT_FREQUENT_TICK),

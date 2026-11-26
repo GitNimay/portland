@@ -23,6 +23,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -297,8 +298,15 @@ private const val RegularBlur = 14f
  * Always false before Android 12 and under "Reduce transparency".
  */
 @Composable
-fun rememberWindowBlurEnabled(): Boolean {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || LocalReduceTransparency.current) return false
+fun rememberWindowBlurEnabled(): Boolean =
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !LocalReduceTransparency.current && LocalWindowBlur.current
+
+// One system listener for the whole app (PortlandTheme), shared by every sheet and dialog through a local.
+private val LocalWindowBlur = compositionLocalOf { false }
+
+@Composable
+private fun rememberSystemWindowBlur(): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return false
     val context = LocalContext.current
     val wm = remember(context) { context.getSystemService(WindowManager::class.java) } ?: return false
     var enabled by remember(wm) { mutableStateOf(wm.isCrossWindowBlurEnabled) }
@@ -333,7 +341,8 @@ fun FrostBehind(progress: () -> Float = { 1f }, radius: Dp = 28.dp) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
     val blur = rememberWindowBlurEnabled()
     val view = LocalView.current
-    val maxPx = with(LocalDensity.current) { radius.toPx() }
+    // The platform guidance: cross-window blur is expensive, keep radii well under 150px.
+    val maxPx = with(LocalDensity.current) { radius.toPx() }.coerceAtMost(MaxBlurPx)
     val read by rememberUpdatedState(progress)
     val window = remember(view) { ((view.parent as? DialogWindowProvider) ?: (view as? DialogWindowProvider))?.window }
     // A dialog dims its own window; a bottom sheet draws its scrim in Compose and has no dim layer. Read once,
@@ -357,11 +366,13 @@ fun FrostBehind(progress: () -> Float = { 1f }, radius: Dp = 28.dp) {
             blur -> BlurDim
             else -> SolidDim
         }
-        // Whole pixels, and a dim quantised to the same steps: at most ~radius updates per open or close.
-        snapshotFlow { (read().coerceIn(0f, 1f) * maxPx).roundToInt() }.collect { px ->
+        // Each update is a window relayout (a binder call on the UI thread), so ease in [FrostSteps] steps,
+        // at most one per frame: smooth to the eye, a handful of relayouts per open or close.
+        snapshotFlow { (read().coerceIn(0f, 1f) * FrostSteps).roundToInt() }.collect { step ->
+            val t = step / FrostSteps.toFloat()
             window.attributes = window.attributes.apply {
-                if (blur) blurBehindRadius = px
-                dimAmount = dim * (px / maxPx).coerceIn(0f, 1f)
+                if (blur) blurBehindRadius = (t * maxPx).roundToInt()
+                dimAmount = dim * t
             }
         }
     }
@@ -384,6 +395,8 @@ fun SyncWindowBars() {
     }
 }
 
+private const val FrostSteps = 16
+private const val MaxBlurPx = 96f
 private const val BlurDim = 0.18f
 private const val SolidDim = 0.32f
 private const val CarrierDim = 0.01f
@@ -514,6 +527,7 @@ fun PortlandTheme(content: @Composable () -> Unit) {
         LocalPalette provides p,
         LocalReduceTransparency provides prefs.reduceTransparency,
         LocalHaptics provides haptics,
+        LocalWindowBlur provides rememberSystemWindowBlur(),
         // Material components' own feedback obeys the same switch.
         LocalHapticFeedback provides if (prefs.haptics) systemHaptics else NoHaptics,
     ) {

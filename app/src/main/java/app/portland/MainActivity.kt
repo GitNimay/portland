@@ -73,6 +73,8 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         Updater.foreground = false
+        // The quiet hour after a visit counts from when the user left, not when they arrived (throttled, off-main).
+        Reminders.recordAppActive(applicationContext)
     }
 
     override fun onNewIntent(intent: Intent) {

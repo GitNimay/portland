@@ -7,6 +7,7 @@ import androidx.annotation.OptIn
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -52,6 +53,7 @@ import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.FrameRateCategory
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.preferredFrameRate
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -76,6 +78,7 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.round
 import androidx.compose.ui.window.Dialog
@@ -126,12 +129,14 @@ import androidx.compose.ui.unit.Dp
 import java.time.LocalDate
 import java.time.format.FormatStyle
 import kotlin.math.abs
+import kotlin.math.min
 import kotlin.math.roundToInt
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.util.lerp
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import app.portland.R
 import app.portland.data.Pin
@@ -217,6 +222,7 @@ fun DetailScreen(ids: List<String>, start: Int) {
             key = { pins.getOrNull(it)?.id ?: it },
         ) { page ->
             val pin = pins.getOrNull(page) ?: return@HorizontalPager
+            val peek = rememberPeekZoom(pin.id)
             // The whole stage takes the vertical swipes, not just the media, so a pull from anywhere closes.
             Box(
                 Modifier
@@ -225,10 +231,12 @@ fun DetailScreen(ids: List<String>, start: Int) {
                     .statusBarsPadding()
                     .navigationBarsPadding()
                     .padding(top = TopBarHeight + StageGap, bottom = bottomChrome + StageGap)
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = 16.dp)
+                    // A pinch anywhere on the stage zooms the media in place (its centre is the stage's centre).
+                    .peekZoom(peek, enabled = { swipe.id == null && !swipe.shelfOpen }),
                 contentAlignment = Alignment.Center,
             ) {
-                MediaBox(pin, active = pager.settledPage == page, swipe, player)
+                MediaBox(pin, active = pager.settledPage == page, swipe, player, peek)
             }
         }
 
@@ -581,13 +589,14 @@ private fun DetailsSheet(pin: Pin, boardName: String?, focusNote: Boolean, onBoa
  */
 @kotlin.OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-private fun MediaBox(pin: Pin, active: Boolean, swipe: MediaSwipe, player: ExoPlayer?) {
+private fun MediaBox(pin: Pin, active: Boolean, swipe: MediaSwipe, player: ExoPlayer?, peek: PeekZoom) {
     val p = LocalPalette.current
     val store = LocalContext.current.store
     val thumbRequest = rememberViewerThumb(pin.id, remember(pin.id) { store.thumb(pin) })
     val fullModel = remember(pin.id) { store.media(pin) }
     val desc = pin.note.ifBlank { null }
-    var zoom by remember(pin.id) { mutableStateOf(false) }
+    var zoom by remember(pin.id) { mutableStateOf<ZoomStart?>(null) }
+    var mediaSize by remember(pin.id) { mutableStateOf(IntSize.Zero) }
     var loaded by remember(pin.id) { mutableStateOf(false) }
     val ratio = if (pin.w > 0 && pin.h > 0) (pin.w.toFloat() / pin.h).coerceIn(0.05f, 20f) else 1f
     // Only the settled page takes part in the shared-element transition: neighbour pages composed inside the pager
@@ -597,6 +606,28 @@ private fun MediaBox(pin: Pin, active: Boolean, swipe: MediaSwipe, player: ExoPl
         swipe.handoffs[pin.id] = { velocity -> shared?.prepareTransitionWithInitialVelocity(velocity) }
         onDispose { swipe.handoffs.remove(pin.id) }
     }
+    // A photo pinched open past a little goes on in the full-screen zoom, at the size and spot the fingers left it;
+    // a video (or a pinch closed) springs back.
+    DisposableEffect(peek, pin.id) {
+        peek.onRelease = { scale, centroid ->
+            val box = mediaSize
+            if (!pin.video && scale > OpenZoomAt && box.width > 0 && box.height > 0) {
+                // The point of the media under the fingers, as a fraction of its size from its centre.
+                val focus = (centroid - peek.offset) / scale
+                zoom = ZoomStart(scale, box.width.toFloat(), Offset(focus.x / box.width, focus.y / box.height))
+            } else {
+                peek.reset()
+            }
+        }
+        onDispose { peek.onRelease = null }
+    }
+    // Once the zoom has faded in over it, the media underneath settles back unseen, ready for when it closes.
+    LaunchedEffect(zoom) {
+        if (zoom != null && (peek.scale != 1f || peek.offset != Offset.Zero)) {
+            delay(400)
+            peek.reset(animated = false)
+        }
+    }
 
     Box(
         Modifier
@@ -605,7 +636,14 @@ private fun MediaBox(pin: Pin, active: Boolean, swipe: MediaSwipe, player: ExoPl
             .sharedPin(shared)
             // Fits the stage both ways: full width for wide media, full height for tall.
             .aspectRatio(ratio)
-            .graphicsLayer { val s = swipe.mediaScale(pin.id); scaleX = s; scaleY = s }
+            .onSizeChanged { mediaSize = it }
+            .graphicsLayer {
+                val s = swipe.mediaScale(pin.id) * peek.scale
+                scaleX = s
+                scaleY = s
+                translationX = peek.offset.x
+                translationY = peek.offset.y
+            }
             .clip(Corners.media)
             .background(p.fill)
             .then(if (loaded) Modifier else Modifier.shimmer(p.shimmer)),
@@ -625,20 +663,30 @@ private fun MediaBox(pin: Pin, active: Boolean, swipe: MediaSwipe, player: ExoPl
                 model = fullModel,
                 contentDescription = desc,
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.matchParentSize().clickable(onClickLabel = "Open image") { zoom = true },
+                modifier = Modifier.matchParentSize().clickable(onClickLabel = "Open image") { zoom = ZoomStart() },
             )
         }
     }
 
-    if (zoom) ZoomDialog(pin, fullModel, desc) { zoom = false }
+    zoom?.let { start -> ZoomDialog(pin, fullModel, desc, start) { zoom = null } }
 }
+
+/** Past this pinch scale, letting go of a photo in the viewer opens it in the full-screen zoom. */
+private const val OpenZoomAt = 1.15f
+
+/**
+ * How the full-screen zoom opens: at rest after a tap, or zoomed after a pinch in the viewer, [scale] times the
+ * [shownWidth] (px) the viewer showed the media at, around [focus], a point of the media given as a fraction of its
+ * width and height from its centre.
+ */
+private data class ZoomStart(val scale: Float = 1f, val shownWidth: Float = 0f, val focus: Offset = Offset.Zero)
 
 /**
  * Full-screen pinch-zoom. At rest (not zoomed in) the same swipes work as in the viewer: pull the image
  * down to close (the black fades to show the viewer behind it), push it up for the send shelf.
  */
 @Composable
-private fun ZoomDialog(pin: Pin, model: Any, description: String?, onClose: () -> Unit) {
+private fun ZoomDialog(pin: Pin, model: Any, description: String?, start: ZoomStart, onClose: () -> Unit) {
     Dialog(
         onDismissRequest = onClose,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
@@ -654,10 +702,28 @@ private fun ZoomDialog(pin: Pin, model: Any, description: String?, onClose: () -
         // Opens like a lightbox: the black fades up while the image grows the last few percent into place.
         val open = remember { Animatable(0f) }
         LaunchedEffect(Unit) { open.animateTo(1f, Motion.smooth()) }
+        var viewport by remember { mutableStateOf(IntSize.Zero) }
+        // Opened by a pinch: pick up at the size the fingers left the photo at, around the same spot of it.
+        LaunchedEffect(Unit) {
+            if (start.scale <= 1f || start.shownWidth <= 0f) return@LaunchedEffect
+            val zoomable = zoomState.zoomableState
+            snapshotFlow { zoomable.zoomFraction != null && viewport.width > 0 && viewport.height > 0 }.first { it }
+            val ratio = if (pin.w > 0 && pin.h > 0) (pin.w.toFloat() / pin.h).coerceIn(0.05f, 20f) else 1f
+            val fitWidth = min(viewport.width.toFloat(), viewport.height * ratio)
+            val fitHeight = fitWidth / ratio
+            val factor = start.scale * start.shownWidth / fitWidth
+            if (factor <= 1.01f) return@LaunchedEffect
+            val point = Offset(
+                viewport.width / 2f + start.focus.x * fitWidth,
+                viewport.height / 2f + start.focus.y * fitHeight,
+            )
+            zoomable.zoomBy(factor, centroid = point, animationSpec = snap())
+        }
 
         Box(
             Modifier
                 .fillMaxSize()
+                .onSizeChanged { viewport = it }
                 .preferredFrameRate(if (swipe.id != null) FrameRateCategory.High else FrameRateCategory.Default)
                 .graphicsLayer {
                     alpha = open.value

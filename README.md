@@ -29,7 +29,7 @@ Inspired by Apple's **Liquid Glass** aesthetic, Portland is designed to feel ult
 
 ## Features
 
-- **Masonry Feed & Boards** — Swipe between Pins and Boards, or long-press to batch-select, organize, and delete.
+- **Masonry Feed & Boards** — Swipe between Pins and Boards, pinch the grid to show 2, 3 or 4 columns, or long-press to batch-select, organize, and delete.
 - **Save from Anywhere** — Pick from your gallery, paste a link, or share directly to Portland. Background workers download images and videos (up to 1080p) using on-device `yt-dlp`. Share an X post or Pinterest pin with several photos or videos and every one of them is saved, downloading in parallel.
 - **Smart Search** — Search instantly by notes, board names, 12 colour buckets (e.g. `"blue"`), or background AI descriptions.
 - **Gallery Viewer** — Scrub through pins on a filmstrip, pinch-to-zoom right in the viewer (photos carry on into full-screen zoom), double-tap to seek videos, pull down to fly back to the grid, or pull up to share and export.

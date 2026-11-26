@@ -17,7 +17,22 @@ data class UserPrefs(
     val haptics: Boolean = true,
     /** Accessibility: solid surfaces instead of Liquid Glass and window blur. Also the cheapest way to draw. */
     val reduceTransparency: Boolean = false,
+    /** Columns in the pin grids, changed by pinching the grid. */
+    val gridColumns: Int = GridColumns.Default,
 )
+
+/**
+ * How many columns the pin grids can show: pinch in to see more at once, out to go back to bigger pins. Two is
+ * the biggest because grid thumbnails are made for it (560 px on the short side); one column would show them
+ * blurry.
+ */
+object GridColumns {
+    const val Min = 2
+    const val Max = 4
+    const val Default = 2
+
+    fun clamp(columns: Int): Int = columns.coerceIn(Min, Max)
+}
 
 /**
  * Settings that shape every screen, kept in SharedPreferences and mirrored as a [StateFlow] so the UI follows
@@ -29,6 +44,7 @@ object Prefs {
     private const val KEY_THEME = "theme"
     private const val KEY_HAPTICS = "haptics"
     private const val KEY_REDUCE_TRANSPARENCY = "reduce_transparency"
+    private const val KEY_GRID_COLUMNS = "grid_columns"
 
     private val lock = Any()
     @Volatile private var prefs: SharedPreferences? = null
@@ -52,6 +68,8 @@ object Prefs {
     fun setHaptics(context: Context, on: Boolean) = update(context) { it.copy(haptics = on) }
 
     fun setReduceTransparency(context: Context, on: Boolean) = update(context) { it.copy(reduceTransparency = on) }
+
+    fun setGridColumns(context: Context, columns: Int) = update(context) { it.copy(gridColumns = GridColumns.clamp(columns)) }
 
     /**
      * Android 12+ keeps an app's own night mode across launches and applies it before the first frame, so the
@@ -79,6 +97,7 @@ object Prefs {
                 theme = p.getString(KEY_THEME, null)?.let { name -> ThemeMode.entries.firstOrNull { it.name == name } } ?: ThemeMode.System,
                 haptics = p.getBoolean(KEY_HAPTICS, true),
                 reduceTransparency = p.getBoolean(KEY_REDUCE_TRANSPARENCY, false),
+                gridColumns = GridColumns.clamp(p.getInt(KEY_GRID_COLUMNS, GridColumns.Default)),
             )
             prefs = p // published last: a non-null prefs means the state above is loaded
             return p
@@ -95,6 +114,7 @@ object Prefs {
                 .putString(KEY_THEME, next.theme.name)
                 .putBoolean(KEY_HAPTICS, next.haptics)
                 .putBoolean(KEY_REDUCE_TRANSPARENCY, next.reduceTransparency)
+                .putInt(KEY_GRID_COLUMNS, next.gridColumns)
                 .apply()
         }
     }

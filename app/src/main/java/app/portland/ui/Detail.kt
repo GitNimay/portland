@@ -743,6 +743,7 @@ private fun VideoLayer(pin: Pin, active: Boolean, player: ExoPlayer, modifier: M
     val haptics = LocalHapticFeedback.current
     val holder = remember(pin.id) { mutableStateOf<ExoPlayer?>(null) }
     var playing by remember(pin.id) { mutableStateOf(true) }
+    var muted by remember(pin.id) { mutableStateOf(false) }
     var duration by remember(pin.id) { mutableLongStateOf(pin.durationMs) }
     // Read only in draw lambdas and derived state, so it never recomposes per frame.
     var position by remember(pin.id) { mutableLongStateOf(0L) }
@@ -793,6 +794,9 @@ private fun VideoLayer(pin: Pin, active: Boolean, player: ExoPlayer, modifier: M
     }
 
     val exo = holder.value
+    LaunchedEffect(exo, muted) {
+        exo?.volume = if (muted) 0f else 1f
+    }
     // Per-frame position while it is moving by itself (read only at draw time, so it redraws, never recomposes).
     LaunchedEffect(exo, playing, scrubbing) {
         if (exo == null) return@LaunchedEffect
@@ -898,7 +902,25 @@ private fun VideoLayer(pin: Pin, active: Boolean, player: ExoPlayer, modifier: M
                         .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.35f)))),
                 )
                 Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()) {
-                    TimePill(playing, duration, { position }, Modifier.padding(start = 12.dp).graphicsLayer { alpha = controls })
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp)
+                            .graphicsLayer { alpha = controls },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TimePill(playing, duration, { position })
+                        Spacer(Modifier.weight(1f))
+                        MutePill(
+                            muted = muted,
+                            enabled = shown || !playing || scrubbing,
+                            onClick = {
+                                muted = !muted
+                                haptics.performHapticFeedback(if (muted) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
+                                poke++
+                            },
+                        )
+                    }
                     Scrubber(
                         exo = exo,
                         duration = duration,
@@ -937,6 +959,42 @@ private fun TimePill(playing: Boolean, duration: Long, position: () -> Long, mod
             style = Type.footnote.digits(),
             color = Color.White,
         )
+    }
+}
+
+@Composable
+private fun MutePill(muted: Boolean, enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val press = remember { MutableInteractionSource() }
+    val pressed by press.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.86f else 1f, Motion.press(), label = "press")
+    Box(
+        modifier
+            .clickable(
+                interactionSource = press,
+                indication = null,
+                enabled = enabled,
+                role = Role.Button,
+                onClickLabel = if (muted) "Unmute" else "Mute",
+                onClick = onClick,
+            )
+            .padding(start = 12.dp, top = 6.dp, bottom = 6.dp),
+        contentAlignment = Alignment.CenterEnd,
+    ) {
+        Box(
+            Modifier
+                .graphicsLayer { scaleX = scale; scaleY = scale }
+                .clip(Corners.pill)
+                .background(Color.Black.copy(alpha = 0.40f))
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painterResource(if (muted) R.drawable.ic_volume_mute else R.drawable.ic_volume),
+                contentDescription = if (muted) "Unmute" else "Mute",
+                tint = Color.White,
+                modifier = Modifier.size(IconSize.small),
+            )
+        }
     }
 }
 

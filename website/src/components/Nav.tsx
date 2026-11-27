@@ -21,7 +21,14 @@ import {
  * and a soft shadow. The lens is an SVG displacement map, which only desktop Chromium applies to
  * backdrops; elsewhere the pill is the same frosted glass without the bend.
  */
-export function Nav() {
+const LINKS = [
+  { label: 'Features', href: '/#features', wide: true },
+  { label: 'GitHub', href: REPO_URL, wide: true, external: true },
+  { label: 'Privacy', href: '/privacy', wide: false },
+  { label: 'TNC', href: '/tnc', wide: false },
+] as const
+
+export function Nav({ tone = 'sky', pathname = '/' }: { tone?: 'sky' | 'paper'; pathname?: string }) {
   const docked = useDocked()
   const dispRef = useRef<SVGFEDisplacementMapElement | null>(null)
   const lens = useLens(docked, dispRef)
@@ -43,10 +50,15 @@ export function Nav() {
       >
         <nav
           aria-label="Primary"
+          data-tone={tone === 'paper' ? 'paper' : undefined}
           className="nav-bar pointer-events-auto relative isolate mx-auto flex items-center justify-between"
         >
           <span aria-hidden data-lens={lens.supported || undefined} className="nav-glass absolute -z-10 rounded-full" />
-          <a href="/" className="nav-brand flex items-center gap-2 rounded-full text-body font-medium">
+          <a
+            href="/"
+            aria-label="Portland"
+            className="nav-brand flex items-center gap-2 rounded-full text-body font-medium"
+          >
             <span className="grid size-8 place-items-center overflow-hidden rounded-full bg-paper shadow-sm">
               <img
                 src="/mark.webp"
@@ -57,19 +69,25 @@ export function Nav() {
                 className="size-full scale-[1.55] object-contain"
               />
             </span>
-            Portland
+            <span className="nav-brand-name">Portland</span>
           </a>
-          <ul className="nav-links hidden items-center text-small sm:flex">
-            <li>
-              <a href="#features" className="nav-link rounded-full px-3 py-2">
-                Features
-              </a>
-            </li>
-            <li>
-              <a href={REPO_URL} target="_blank" rel="noreferrer" className="nav-link rounded-full px-3 py-2">
-                GitHub
-              </a>
-            </li>
+          <ul className="nav-links flex items-center text-small">
+            {LINKS.map((link) => {
+              const href = link.label === 'Features' && pathname === '/' ? '#features' : link.href
+              const current = href === pathname
+              return (
+                <li key={link.label} className={link.wide ? 'hidden sm:block' : undefined}>
+                  <a
+                    href={href}
+                    aria-current={current ? 'page' : undefined}
+                    {...('external' in link ? { target: '_blank', rel: 'noreferrer' } : {})}
+                    className="nav-link rounded-full px-2 py-2 whitespace-nowrap sm:px-3"
+                  >
+                    {link.label}
+                  </a>
+                </li>
+              )
+            })}
           </ul>
           <a
             href={DOWNLOAD_URL}

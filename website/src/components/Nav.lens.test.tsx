@@ -1,7 +1,7 @@
 import { act, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as NavModule from '#/lib/nav'
-import { DOCK_H, LENS_SCALE } from '#/lib/nav'
+import { DOCK_H, DOCK_W, LENS_SCALE } from '#/lib/nav'
 import { Nav } from './Nav'
 
 // Chromium path: backdrop refraction is available and the map can be drawn.
@@ -34,8 +34,8 @@ describe('Nav lens (Chromium)', () => {
   it('draws a lens map sized exactly to the docked pill', () => {
     const { container } = render(<Nav />)
     const image = container.querySelector('#nav-lens feImage')
-    expect(image).toHaveAttribute('href', `data:image/png;map-440x${DOCK_H}`)
-    expect(image).toHaveAttribute('width', '440')
+    expect(image).toHaveAttribute('href', `data:image/png;map-${DOCK_W}x${DOCK_H}`)
+    expect(image).toHaveAttribute('width', String(DOCK_W))
     expect(container.querySelector('.nav-glass')).toHaveAttribute('data-lens')
   })
 

@@ -30,7 +30,19 @@ describe('Nav', () => {
     expect(nav.getByRole('link', { name: 'Portland' })).toHaveAttribute('href', '/')
     expect(nav.getByRole('link', { name: 'Features' })).toHaveAttribute('href', '#features')
     expect(nav.getByRole('link', { name: 'GitHub' })).toHaveAttribute('href', REPO_URL)
+    expect(nav.getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '/privacy')
+    expect(nav.getByRole('link', { name: 'TNC' })).toHaveAttribute('href', '/tnc')
     expect(nav.getByRole('link', { name: 'Download' })).toHaveAttribute('href', DOWNLOAD_URL)
+    expect(nav.getByRole('link', { name: 'Privacy' })).not.toHaveAttribute('target')
+    expect(nav.getByRole('link', { name: 'TNC' })).not.toHaveAttribute('target')
+  })
+
+  it('marks the current legal page and points Features back home from there', () => {
+    render(<Nav tone="paper" pathname="/tnc" />)
+    expect(primary()).toHaveAttribute('data-tone', 'paper')
+    expect(screen.getByRole('link', { name: 'TNC' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('link', { name: 'Privacy' })).not.toHaveAttribute('aria-current')
+    expect(screen.getByRole('link', { name: 'Features' })).toHaveAttribute('href', '/#features')
   })
 
   it('opens external links in a new tab without leaking the referrer', () => {

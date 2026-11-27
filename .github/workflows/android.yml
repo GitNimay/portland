@@ -133,7 +133,7 @@ jobs:
         run: ./gradlew :app:assembleRelease -x lintVitalRelease --stacktrace
 
       # The same manifest script and checks the publish job runs, on this PR's APK, so a broken update path fails here.
-      - name: Check update manifests
+      - name: Check update manifest
         run: |
           apk=app/build/outputs/apk/release/app-release.apk
           bash .github/scripts/release-manifest.sh "$apk" 100 1.0.100 "$GITHUB_REPOSITORY" "$RUNNER_TEMP/manifests" "PR check"
@@ -309,9 +309,8 @@ jobs:
         with:
           subject-path: release-artifacts/app-release.apk
 
-      # Two manifests from one script (checked on every PR too): latest.json for current builds, which read it from
-      # the GitHub release, and legacy-latest.json for the R2 bridge below.
-      - name: Update manifests
+      # The same script and check every PR's release build runs.
+      - name: Update manifest
         run: |
           apk=release-artifacts/app-release.apk
           sha=$(bash .github/scripts/release-manifest.sh "$apk" "$VERSION_CODE" "$VERSION_NAME" "$GITHUB_REPOSITORY" \
@@ -333,17 +332,6 @@ jobs:
           fi
           gh release create "v$VERSION_NAME" "${assets[@]}" \
             --title "Portland $VERSION_NAME" --target "$GITHUB_SHA" --generate-notes --latest
-
-      # Builds from before bring-your-own-R2 can only look for updates in the old "portland" bucket. This puts each
-      # release there too, so every one of them updates itself to a current build (which then uses GitHub). It skips
-      # itself once the R2_* secrets are deleted; see the script for how to retire it.
-      - name: Legacy R2 update bridge
-        env:
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
-          R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
-        run: bash .github/scripts/r2-bridge-publish.sh release-artifacts/app-release.apk "$RUNNER_TEMP/manifests/legacy-latest.json"
 
       - name: Write release summary
         run: |

@@ -14,10 +14,7 @@ import org.json.JSONObject
 import java.io.IOException
 import java.net.URLEncoder
 
-/**
- * The bucket Portland makes in a user's account. Not "portland": that is where the release bridge lives for older
- * builds, whose built-in key can reach any bucket of that name in its owner's account (see the publish job in CI).
- */
+/** The bucket Portland makes in a user's account (or uses, when it is already there). */
 const val DEFAULT_BUCKET = "portland-library"
 
 /** Workers AI Read. Short keys have none for it (a guessed "workers_ai" is silently dropped), so it goes by ID. */

@@ -259,6 +259,19 @@ class MediaSwipe internal constructor(
         pull = Offset.Zero
         lift = 0f
     }
+
+    /**
+     * Back to rest at once, whatever was under way: a viewer brought back while it is still animating out (see
+     * [ReviveEffect]) must not keep the pull that closed it, nor the [dismissing] latch that ignores every touch.
+     */
+    fun reset() {
+        settle?.cancel() // first: a fly-out still running would end in onDismiss()
+        settle = null
+        dismissing = false
+        shelfOpen = false
+        armed = false
+        rest()
+    }
 }
 
 /**

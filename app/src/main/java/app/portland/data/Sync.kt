@@ -15,17 +15,22 @@ import androidx.work.WorkRequest
 import androidx.work.WorkerParameters
 import app.portland.App
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
 /**
- * Mirrors the local library to R2. Bursts of edits are debounced in-process, then runs are chained
- * (never replaced) so a big video upload in flight is not cancelled by a later edit.
+ * Mirrors the library to the connected R2 bucket, then settles what stays on the phone (see [CloudState]).
+ * Bursts of edits are debounced in-process, then runs are chained (never replaced) so a big video upload in
+ * flight is not cancelled by a later edit.
  */
 object Sync {
+    const val WORK = "sync"
     private val main = Handler(Looper.getMainLooper())
     private val token = Any()
 
     fun schedule(context: Context) {
+        Cloud.load(context)
         if (!R2.enabled) return
         val app = context.applicationContext
         main.removeCallbacksAndMessages(token)
@@ -37,12 +42,14 @@ object Sync {
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, WorkRequest.MIN_BACKOFF_MILLIS, TimeUnit.MILLISECONDS)
             .build()
-        WorkManager.getInstance(context).enqueueUniqueWork("sync", ExistingWorkPolicy.APPEND_OR_REPLACE, work)
+        WorkManager.getInstance(context).enqueueUniqueWork(WORK, ExistingWorkPolicy.APPEND_OR_REPLACE, work)
     }
 }
 
 class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
+        Cloud.load(applicationContext)
+        if (!R2.enabled) return Result.success() // disconnected since this run was queued
         val store = (applicationContext as App).store
         return try {
             uploadPins(store)
@@ -51,6 +58,7 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
             if (syncIndex(store)) {
                 runCatching { sweepOrphans(store) }.onFailure { if (it is CancellationException) throw it; Log.w("Sync", "orphan sweep failed", it) } // housekeeping; never fails the sync
             }
+            settleLocal(store)
             store.indexColors() // pins that just arrived from another install
             Result.success()
         } catch (e: CancellationException) {
@@ -89,6 +97,31 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
         for (key in store.library.value.purge) {
             R2.delete(key)
             store.update(sync = false) { it.copy(purge = it.purge - key) }
+        }
+    }
+
+    /** Backup mode brings every pin onto the phone; cloud mode frees the phone copies that are safely in R2. */
+    private suspend fun settleLocal(store: Store) {
+        val pins = store.library.value.pins
+        val local = withContext(Dispatchers.IO) { pins.filter { store.mediaFile(it).exists() }.mapTo(HashSet()) { it.id } }
+        if (Cloud.state.value.keepLocal) {
+            // One pin at a time, so one bad download never holds up the rest; the run retries if any failed.
+            var failed = 0
+            for (pin in CloudPolicy.toFetch(pins) { it.id in local }) {
+                try {
+                    if (!store.fetchLocal(pin)) Log.w("Sync", "${pin.mediaKey} is missing from R2; nothing to download")
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    failed++
+                    Log.w("Sync", "could not download ${pin.id}", e)
+                }
+            }
+            if (failed > 0) throw java.io.IOException("$failed pins did not download")
+        } else {
+            val freed = CloudPolicy.toEvict(pins) { it.id in local }
+            for (pin in freed) store.evictLocal(pin)
+            if (freed.isNotEmpty()) Log.i("Sync", "freed ${freed.size} phone copies now in R2")
         }
     }
 

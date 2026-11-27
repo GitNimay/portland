@@ -47,7 +47,8 @@ class Store(private val app: Context) {
     // library.json is read and parsed on its own thread from the moment the store is made (Application.onCreate),
     // so a large library no longer holds up the start: the parse overlaps the activity being created. The first
     // reader (usually the first frame) waits only for whatever is left of it, and gets exactly what load() returns.
-    private val loading = FutureTask(::load).also { Thread(it, "library-load").start() }
+    // The saved R2 bucket is read first on the same thread, so every pin URL made from the library points at it.
+    private val loading = FutureTask { Cloud.load(app); load() }.also { Thread(it, "library-load").start() }
     private val state by lazy { MutableStateFlow(loading.get()) }
     private val _importing = MutableStateFlow(0)
     private val scope = CoroutineScope(
@@ -81,6 +82,39 @@ class Store(private val app: Context) {
     // only change when it is created (before it is listed) or deleted, and both paths reset its entries.
     private val models = java.util.concurrent.ConcurrentHashMap<String, Any>()
     private fun forget(id: String) { models.remove("m$id"); models.remove("t$id") }
+
+    /** Drops every cached model, after the bucket changes or goes. */
+    fun forgetModels() = models.clear()
+
+    /** Brings [pin]'s files from R2 onto this phone (backup mode, or before leaving R2). */
+    /** Returns false when R2 has no file for it either (lost before this phone saw it): nothing to bring home. */
+    suspend fun fetchLocal(pin: Pin): Boolean {
+        val media = mediaFile(pin)
+        if (!withContext(Dispatchers.IO) { media.exists() }) {
+            try {
+                R2.download(pin.mediaKey, media)
+            } catch (e: R2Exception) {
+                if (e.code == 404) return false
+                throw e
+            }
+        }
+        val thumb = thumbFile(pin)
+        if (!withContext(Dispatchers.IO) { thumb.exists() }) {
+            try {
+                R2.download(pin.thumbKey, thumb)
+            } catch (e: R2Exception) {
+                if (e.code != 404) throw e // a pin uploaded without a thumbnail; the card makes do
+            }
+        }
+        forget(pin.id)
+        return true
+    }
+
+    /** Frees [pin]'s phone copy once it is in R2 (cloud mode). The small thumbnail stays for the grid. */
+    suspend fun evictLocal(pin: Pin) {
+        withContext(Dispatchers.IO) { mediaFile(pin).delete() }
+        forget(pin.id)
+    }
 
     /** Applies [change] atomically, persists it and, unless [sync] is false, schedules a sync. */
     suspend fun update(sync: Boolean = true, change: (Library) -> Library) {

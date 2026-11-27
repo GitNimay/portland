@@ -85,9 +85,11 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.portland.BuildConfig
 import app.portland.R
+import app.portland.data.Cloud
 import app.portland.data.Prefs
 import app.portland.data.Reminders
 import app.portland.data.ThemeMode
+import app.portland.store
 import coil3.SingletonImageLoader
 import com.kyant.shapes.RoundedRectangle
 import kotlinx.coroutines.Dispatchers
@@ -114,6 +116,11 @@ fun SettingsSheet(onDismiss: () -> Unit) {
     var askSettings by remember { mutableStateOf(false) }
     var cacheBytes by remember { mutableStateOf<Long?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
+    val cloud by Cloud.state.collectAsStateWithLifecycle()
+    var setupOpen by remember { mutableStateOf(false) }
+    var showBucket by remember { mutableStateOf(false) }
+    var leaveCloud by remember { mutableStateOf<Int?>(null) } // pins to download before leaving R2, while asking
+    var moveFailed by remember { mutableStateOf<Int?>(null) }
 
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
@@ -259,6 +266,51 @@ fun SettingsSheet(onDismiss: () -> Unit) {
             }
 
             SettingsGroup(header = "Storage") {
+                val green = settingsGreen()
+                SettingsRow(
+                    icon = R.drawable.ic_phone,
+                    tile = if (p.dark) Color(0xFF0A84FF) else Color(0xFF007AFF),
+                    title = "This phone",
+                    selected = !cloud.connected,
+                    onClick = {
+                        if (cloud.connected && cloud.moving == null) {
+                            haptics.play(Fx.Tick)
+                            scope.launch { leaveCloud = Cloud.remoteOnly(context).size }
+                        }
+                    },
+                ) {
+                    val moving = cloud.moving
+                    if (moving != null) {
+                        Text("${moving.done} of ${moving.total}", style = Type.body.digits(), color = p.ink3)
+                    } else {
+                        CheckCircle(!cloud.connected, green)
+                    }
+                }
+                RowDivider()
+                SettingsRow(
+                    icon = R.drawable.ic_cloud,
+                    tile = CloudflareOrange,
+                    title = "Cloudflare R2",
+                    selected = cloud.connected,
+                    onClick = {
+                        haptics.play(Fx.Tick)
+                        if (cloud.connected) showBucket = true else setupOpen = true
+                    },
+                ) { CheckCircle(cloud.connected, green) }
+                if (cloud.connected) {
+                    RowDivider()
+                    SettingsRow(
+                        icon = R.drawable.ic_download,
+                        tile = settingsGreen(),
+                        title = "Keep copies on this phone",
+                        checked = cloud.keepLocal,
+                        onClick = {
+                            haptics.play(if (cloud.keepLocal) Fx.ToggleOff else Fx.ToggleOn)
+                            Cloud.setKeepLocal(context, !cloud.keepLocal)
+                        },
+                    ) { PillSwitch(checked = cloud.keepLocal) }
+                }
+                RowDivider()
                 SettingsRow(
                     icon = R.drawable.ic_storage,
                     tile = Color(0xFF8E8E93),
@@ -299,15 +351,64 @@ fun SettingsSheet(onDismiss: () -> Unit) {
             onDismiss = { confirmClear = false },
         )
     }
+
+    if (setupOpen) CloudSetupSheet(onDismiss = { setupOpen = false })
+
+    leaveCloud?.let { count ->
+        PortlandDialog(
+            title = "Use this phone only?",
+            body = if (count > 0) "$count ${if (count == 1) "pin downloads" else "pins download"} to this phone first. Your bucket stays as it is."
+            else "Your bucket stays as it is.",
+            confirmLabel = "Switch",
+            onConfirm = {
+                leaveCloud = null
+                // On the store's scope: the download carries on if Settings closes.
+                context.store.launch {
+                    val failed = Cloud.useThisPhoneOnly(context)
+                    if (failed > 0) moveFailed = failed
+                }
+            },
+            onDismiss = { leaveCloud = null },
+        )
+    }
+
+    moveFailed?.let { failed ->
+        PortlandDialog(
+            title = "$failed ${if (failed == 1) "pin" else "pins"} didn't download",
+            body = "Try again when you're online, or switch anyway and leave them in R2.",
+            confirmLabel = "Switch anyway",
+            destructive = true,
+            onConfirm = {
+                moveFailed = null
+                context.store.launch { Cloud.useThisPhoneOnly(context, force = true) }
+            },
+            onDismiss = { moveFailed = null },
+        )
+    }
+
+    if (showBucket) {
+        val config = cloud.config
+        PortlandDialog(
+            title = "Cloudflare R2",
+            body = config?.let { "Bucket “${it.bucket}” in account …${it.accountId.takeLast(6)}." },
+            confirmLabel = "Change",
+            dismissLabel = "Close",
+            onConfirm = {
+                showBucket = false
+                setupOpen = true
+            },
+            onDismiss = { showBucket = false },
+        )
+    }
 }
 
 /** Apple's system green: switches that are on, the chosen option. */
 @Composable
-private fun settingsGreen(): Color = if (LocalPalette.current.dark) Color(0xFF30D158) else Color(0xFF34C759)
+internal fun settingsGreen(): Color = if (LocalPalette.current.dark) Color(0xFF30D158) else Color(0xFF34C759)
 
 /** A titled, inset-grouped card of rows, as in iOS Settings. */
 @Composable
-private fun SettingsGroup(
+internal fun SettingsGroup(
     header: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -334,14 +435,16 @@ private fun SettingsGroup(
 /**
  * One row: a coloured icon tile, a title, and [trailing] (a switch, a value). The whole row is the touch target
  * and greys under the finger, as iOS rows do. With [checked] it is a switch: screen readers hear "on" or "off".
+ * With [selected] it is one of a set of options (a radio button).
  */
 @Composable
-private fun SettingsRow(
+internal fun SettingsRow(
     @DrawableRes icon: Int,
     tile: Color,
     title: String,
     onClick: () -> Unit,
     checked: Boolean? = null,
+    selected: Boolean? = null,
     enabled: Boolean = true,
     trailing: @Composable () -> Unit,
 ) {
@@ -351,6 +454,8 @@ private fun SettingsRow(
     val wash by animateFloatAsState(if (pressed) 1f else 0f, Motion.press(), label = "rowPress")
     val action = if (checked != null) {
         Modifier.toggleable(value = checked, interactionSource = press, indication = null, enabled = enabled, role = Role.Switch) { onClick() }
+    } else if (selected != null) {
+        Modifier.selectable(selected = selected, interactionSource = press, indication = null, enabled = enabled, role = Role.RadioButton, onClick = onClick)
     } else {
         Modifier.clickable(interactionSource = press, indication = null, enabled = enabled, role = Role.Button, onClickLabel = title, onClick = onClick)
     }
@@ -392,7 +497,7 @@ private val RowTile = RoundedRectangle(8.dp)
 
 /** Hairline between rows, starting under the title as in iOS (past the icon tile) unless [inset] says otherwise. */
 @Composable
-private fun RowDivider(inset: Dp = 58.dp) {
+internal fun RowDivider(inset: Dp = 58.dp) {
     val p = LocalPalette.current
     Box(
         Modifier
@@ -524,7 +629,7 @@ private fun DrawScope.drawPhone(phone: Size, dark: Boolean) {
 }
 
 @Composable
-private fun CheckCircle(checked: Boolean, green: Color) {
+internal fun CheckCircle(checked: Boolean, green: Color) {
     val p = LocalPalette.current
     val fill by animateFloatAsState(if (checked) 1f else 0f, Motion.snappy(), label = "check")
     Box(
@@ -553,7 +658,7 @@ private fun CheckCircle(checked: Boolean, green: Color) {
 
 /** iOS-style switch: green when on, a white thumb either way. */
 @Composable
-private fun PillSwitch(checked: Boolean) {
+internal fun PillSwitch(checked: Boolean) {
     val p = LocalPalette.current
     val off = if (p.dark) Color(0xFF39393D) else Color(0xFFE9E9EB)
     val track by animateColorAsState(if (checked) settingsGreen() else off, Motion.snappy(), label = "track")

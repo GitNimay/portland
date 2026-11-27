@@ -85,7 +85,7 @@ export function Features() {
         <Card
           tint="sky"
           title="Your bucket, your backups"
-          desc="Back up to your own Cloudflare R2. Restore on any fresh install."
+          desc="Save right to your phone, or bring your own R2 bucket for backups."
           className="h-[23rem] md:h-[26rem] lg:h-auto"
         >
           <div className="absolute inset-x-0 top-0 flex flex-col items-center">
@@ -93,9 +93,10 @@ export function Features() {
               src="/hero/obj-bucket.png"
               alt=""
               aria-hidden
-              width={762}
-              height={800}
+              width={336}
+              height={352}
               loading="lazy"
+              decoding="async"
               className={cn(phoneHover, '-mt-2 w-28')}
             />
             <SyncChip className="relative -mt-8" />

@@ -8,13 +8,13 @@ type Page = ConstructorParameters<typeof AxeBuilder>[0]['page']
 /** WebKit only tabs to links when a browser preference allows it, so keyboard order is checked in Chromium and Firefox. */
 const KEYBOARD_SKIP = 'Keyboard order is checked on desktop Chromium and Firefox.'
 
-/** Waits for one-off entrance animations (not the looping chip ones) so colours are final. */
+/** Waits for one-off entrance animations (not looping or scroll-driven ones) so colours are final. */
 async function settle(page: Page) {
   await page.evaluate(() =>
     Promise.all(
       document
         .getAnimations()
-        .filter((a) => a.effect?.getTiming().iterations !== Infinity)
+        .filter((a) => a.timeline === document.timeline && a.effect?.getTiming().iterations !== Infinity)
         .map((a) => a.finished.catch(() => undefined)),
     ),
   )

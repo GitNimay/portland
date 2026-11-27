@@ -21,11 +21,11 @@ vi.mock('lenis', () => ({
 }))
 
 /** Report whether the visitor is fine with motion (the setup file defaults to "no"). */
-function allowMotion(ok: boolean) {
+function allowMotion(ok: boolean, { coarse = false } = {}) {
   vi.spyOn(window, 'matchMedia').mockImplementation(
     (query: string) =>
       ({
-        matches: ok && query.includes('no-preference'),
+        matches: (ok && query.includes('no-preference')) || (coarse && query.includes('pointer: coarse')),
         media: query,
         onchange: null,
         addListener: vi.fn(),
@@ -68,6 +68,7 @@ describe('scroll motion', () => {
 
   it('scrubs the hero and footer depth layers with motion, and reverts them on unmount', () => {
     allowMotion(true)
+    vi.spyOn(CSS, 'supports').mockReturnValue(false)
     const { unmount } = render(
       <>
         <Hero />
@@ -81,7 +82,28 @@ describe('scroll motion', () => {
 
   it('creates no scroll triggers with reduced motion', () => {
     allowMotion(false)
+    vi.spyOn(CSS, 'supports').mockReturnValue(false)
     render(<Hero />)
     expect(ScrollTrigger.getAll()).toHaveLength(0)
+  })
+
+  it('skips Lenis smooth wheel ticker on touch-only devices', () => {
+    allowMotion(true, { coarse: true })
+    render(<SmoothScroll />)
+    expect(lenis.instances).toHaveLength(0)
+  })
+
+  it('defers parallax to CSS Scroll-Driven Animations when supported', () => {
+    allowMotion(true)
+    vi.spyOn(CSS, 'supports').mockImplementation((condition: string) => condition === 'animation-timeline: scroll()')
+    const { container, unmount } = render(
+      <>
+        <Hero />
+        <Footer />
+      </>,
+    )
+    expect(ScrollTrigger.getAll()).toHaveLength(0)
+    expect(container.querySelector('section')?.style.getPropertyValue('--hero-h')).toMatch(/px$/)
+    unmount()
   })
 })

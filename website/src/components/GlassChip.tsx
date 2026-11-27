@@ -66,7 +66,14 @@ export function SavedChip({ className, style }: ChipProps) {
   return (
     <GlassChip className={className} style={style}>
       <ChipTile>
-        <img src="/hero/obj-photos.png" alt="" width={800} height={727} className="size-6 object-contain" />
+        <img
+          src="/hero/obj-photos.png"
+          alt=""
+          width={128}
+          height={116}
+          decoding="async"
+          className="size-6 object-contain"
+        />
       </ChipTile>
       Saved
       <Check className="pop-once [animation-delay:1100ms]" />

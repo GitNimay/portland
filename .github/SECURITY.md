@@ -30,6 +30,7 @@ Please include:
 ## Security Controls in This Repository
 
 - **Static Analysis (SAST):** CodeQL (`java-kotlin`) and Android Lint (`lintDebug`) run on every PR and push to `main`.
-- **Secret Detection:** GitHub Secret Scanning with Push Protection plus Gitleaks full-history scanning.
+- **Secret Detection:** GitHub Secret Scanning with Push Protection plus Gitleaks on every PR and push (commit range) and a weekly full-history scan.
 - **Dependency & Supply Chain Scanning:** OSV-Scanner, Trivy, GitHub Dependency Graph, Dependabot vulnerability alerts, and automated Dependabot security/version updates.
 - **Release Integrity:** Release APKs are signed with a single permanent release keystore, verified by SHA-256 checksum in `releases/latest.json` by `Updater.kt`, and published only after all required checks pass.
+- **CI Supply Chain:** Every GitHub Action is pinned to a full commit SHA, workflows are linted by actionlint and zizmor, release APKs carry a signed build provenance attestation (`gh attestation verify app-release.apk -R GitNimay/portland`), and secret-bearing release builds never write the shared Actions cache.

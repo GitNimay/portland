@@ -1,0 +1,34 @@
+name: Bug report
+description: Something in Portland doesn't work as expected.
+labels: ["type/bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open …
+        2. Tap …
+  - type: input
+    id: version
+    attributes:
+      label: Portland version
+      description: Shown in Settings as "Portland 1.0.x".
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and Android version
+      placeholder: Pixel 9, Android 16
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots, recordings or logs

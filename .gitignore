@@ -1,9 +1,26 @@
+# Gradle & Kotlin
 .gradle/
 .kotlin/
 build/
-local.properties
+*.hprof
+
+# Android Studio / IntelliJ
 .idea/
 *.iml
 captures/
-.DS_Store
+.externalNativeBuild/
+.cxx/
+
+# Local config and secrets
+local.properties
 *.jks
+*.keystore
+
+# Build outputs
+*.apk
+*.aab
+
+# Editors & OS
+.vscode/
+.DS_Store
+Thumbs.db

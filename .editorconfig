@@ -17,6 +17,10 @@ indent_size = 2
 [*.md]
 trim_trailing_whitespace = false
 
+# The website follows the JS ecosystem default; Prettier reads this too.
+[website/**]
+indent_size = 2
+
 [*.bat]
 end_of_line = crlf
 

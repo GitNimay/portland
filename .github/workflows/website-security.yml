@@ -1,0 +1,154 @@
+name: Website Security
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "website/**"
+      - ".github/workflows/website-security.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "website/**"
+      - ".github/workflows/website-security.yml"
+  schedule:
+    - cron: "15 3 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: website-security-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  npm-audit:
+    name: npm Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-website
+
+      # Fails on HIGH or CRITICAL advisories in anything that ships (dev tooling is reported, not enforced).
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Report all advisories
+        if: always()
+        run: |
+          {
+            echo "### npm audit (all dependencies)"
+            echo '```'
+            npm audit || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Verifies registry signatures and provenance attestations of every installed package.
+      - name: Verify package signatures
+        run: npm audit signatures
+
+  dependency-review:
+    name: Dependency Review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Review new and changed dependencies
+        uses: actions/dependency-review-action@bbc44d14a204704ccc493733616cd1e93a0321ec # v5.0.1
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+          deny-licenses: GPL-2.0-only, GPL-3.0-only, AGPL-3.0-only, AGPL-3.0-or-later
+
+  trivy:
+    name: Trivy Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: website
+          scanners: vuln,misconfig,secret
+          format: sarif
+          output: trivy-website.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          cache: "true"
+          exit-code: "0"
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
+        if: always() && hashFiles('trivy-website.sarif') != ''
+        with:
+          sarif_file: trivy-website.sarif
+          category: trivy-website
+
+      - name: Enforce Trivy findings
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+
+          with open("trivy-website.sarif", encoding="utf-8") as f:
+              data = json.load(f)
+          findings = [
+              (res.get("ruleId", "unknown"), res.get("message", {}).get("text", "").replace("\n", " "))
+              for run in data.get("runs", [])
+              for res in run.get("results", [])
+          ]
+          lines = ["### Website Trivy Summary (CRITICAL/HIGH, fixable)", f"- **Findings:** {len(findings)}", ""]
+          lines += [f"- `{rule}`: {msg[:160]}" for rule, msg in findings[:50]] or ["No CRITICAL or HIGH fixable findings detected."]
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write("\n".join(lines) + "\n")
+          for rule, msg in findings:
+              print(f"::error::{rule}: {msg}")
+          sys.exit(1 if findings else 0)
+          PY
+
+  osv:
+    name: OSV-Scanner
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Scan the website lockfile
+        uses: google/osv-scanner-action/osv-scanner-action@32d3cd482bdadfb38b186c0ad1b031902d55d932 # v2.7.1
+        with:
+          scan-args: |-
+            --lockfile=website/package-lock.json
+            --format=sarif
+            --output=osv-website.sarif
+
+      - name: Upload OSV SARIF
+        uses: github/codeql-action/upload-sarif@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
+        if: always() && hashFiles('osv-website.sarif') != ''
+        with:
+          sarif_file: osv-website.sarif
+          category: osv-website

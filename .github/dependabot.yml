@@ -37,6 +37,65 @@ updates:
         update-types:
           - "patch"
 
+  - package-ecosystem: "npm"
+    directory: "/website"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    # Let a new release age a week before it is proposed, so a compromised version is usually pulled first.
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "deps(website)"
+    labels:
+      - "dependencies"
+      - "type/deps"
+      - "area/website"
+    groups:
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react*"
+      tanstack:
+        patterns:
+          - "@tanstack/*"
+      tailwind:
+        patterns:
+          - "tailwindcss"
+          - "@tailwindcss/*"
+          - "prettier-plugin-tailwindcss"
+      motion:
+        patterns:
+          - "gsap"
+          - "@gsap/*"
+          - "lenis"
+          - "motion"
+      lint-format:
+        patterns:
+          - "eslint*"
+          - "@eslint/*"
+          - "typescript-eslint"
+          - "globals"
+          - "prettier"
+      testing:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+          - "jsdom"
+          - "@testing-library/*"
+          - "@playwright/test"
+          - "@axe-core/*"
+      build:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+          - "typescript"
+          - "@types/node"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

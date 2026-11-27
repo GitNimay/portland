@@ -33,16 +33,14 @@ jobs:
         language: ["java-kotlin"]
 
     steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/setup-android-gradle
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          job-key: codeql
-          # CodeQL disables the Gradle build cache during traced compilation,
-          # so keep Gradle User Home read-only to avoid polluting main's caches.
-          cache-read-only: "true"
+          persist-credentials: false
+      # Restores the Android workflow's Gradle cache read-only.
+      - uses: ./.github/actions/setup-android-gradle
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
         with:
           languages: ${{ matrix.language }}
           build-mode: manual
@@ -55,7 +53,7 @@ jobs:
         run: ./gradlew :app:compileDebugKotlin :app:compileDebugJavaWithJavac --no-daemon --no-build-cache --no-configuration-cache
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
         with:
           category: "/language:${{ matrix.language }}"
           output: sarif-results
@@ -63,7 +61,7 @@ jobs:
           upload: ${{ (github.event.repository.visibility == 'public' || vars.GHAS_ENABLED == 'true') && 'always' || 'never' }}
 
       - name: Upload CodeQL SARIF artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: codeql-sarif-${{ matrix.language }}

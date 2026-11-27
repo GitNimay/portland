@@ -1,16 +1,15 @@
 name: Setup Android Gradle Environment
-description: Sets up JDK 21, optional Android Lint cache, and Gradle User Home / Build Cache.
+description: Sets up JDK 21, CI Gradle settings, the shared Gradle User Home cache, and optionally the Android Lint cache.
 
 inputs:
-  job-key:
-    description: Cache key namespace for this CI job
-    required: true
-  cache-read-only:
-    description: Override cache-read-only for Gradle User Home ("true" or "false"; defaults to read-only off main)
+  cache-write:
+    description: >
+      "true" for the single job that writes the Gradle cache on main. Every other job, and every job off main, restores
+      it read-only, so parallel jobs never write competing copies (which evicted each other and blew past the 10 GB cap).
     required: false
-    default: ""
+    default: "false"
   cache-android-lint:
-    description: Persist ~/.android/cache for Android Lint across runs
+    description: Restore ~/.android/cache for Android Lint (saved only from main)
     required: false
     default: "false"
 
@@ -18,16 +17,38 @@ runs:
   using: composite
   steps:
     - name: Set up JDK 21
-      uses: actions/setup-java@v6
+      uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
       with:
         distribution: temurin
         java-version: 21
 
+    # All jobs, in every workflow, share one cache key, so a read-only job restores exactly what the main writer saved.
+    # The prefix starts a fresh namespace, leaving the old per-job entries to expire instead of being restored.
+    - name: Configure Gradle for CI
+      shell: bash
+      run: |
+        mkdir -p ~/.gradle
+        cp "$GITHUB_ACTION_PATH/../../ci-gradle.properties" ~/.gradle/gradle.properties
+        {
+          echo "GRADLE_BUILD_ACTION_CACHE_KEY_PREFIX=ci1-"
+          echo "GRADLE_BUILD_ACTION_CACHE_KEY_JOB=android"
+          echo "GRADLE_BUILD_ACTION_CACHE_KEY_JOB_INSTANCE=android"
+        } >> "$GITHUB_ENV"
+
     # Registered before setup-gradle so post-step reverse order stops the Gradle daemon
     # before actions/cache archives ~/.android/cache.
     - name: Cache Android Lint cache
-      if: inputs.cache-android-lint == 'true'
-      uses: actions/cache@v6
+      if: inputs.cache-android-lint == 'true' && github.ref == 'refs/heads/main'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.android/cache
+        key: ${{ runner.os }}-android-lint-${{ hashFiles('gradle/libs.versions.toml', 'app/build.gradle.kts') }}
+        restore-keys: |
+          ${{ runner.os }}-android-lint-
+
+    - name: Restore Android Lint cache
+      if: inputs.cache-android-lint == 'true' && github.ref != 'refs/heads/main'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ~/.android/cache
         key: ${{ runner.os }}-android-lint-${{ hashFiles('gradle/libs.versions.toml', 'app/build.gradle.kts') }}
@@ -35,9 +56,9 @@ runs:
           ${{ runner.os }}-android-lint-
 
     - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v6
+      uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
       with:
         cache-provider: enhanced
-        # Keep shared dependencies/transforms intact across parallel debug, test, lint, and release jobs.
-        cache-cleanup: never
-        cache-read-only: ${{ inputs.cache-read-only != '' && inputs.cache-read-only == 'true' || github.ref != 'refs/heads/main' }}
+        # With a single writer, cleanup is safe again and keeps the transforms entry from growing without bound.
+        cache-cleanup: on-success
+        cache-read-only: ${{ !(inputs.cache-write == 'true' && github.ref == 'refs/heads/main') }}

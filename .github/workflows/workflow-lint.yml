@@ -1,0 +1,55 @@
+name: Workflow Lint
+
+# Lints the CI itself: actionlint catches broken workflow syntax and expressions, zizmor catches security mistakes
+# (unpinned actions, template injection, over-broad tokens, dangerous triggers). Seconds per run, only when .github changes.
+
+on:
+  push:
+    branches: [main]
+    paths: [".github/**"]
+  pull_request:
+    branches: [main]
+    paths: [".github/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: workflow-lint-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: actionlint & zizmor
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    env:
+      ACTIONLINT_VERSION: 1.7.12
+      ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+      ZIZMOR_VERSION: 1.33.1
+      ZIZMOR_SHA256: 3e6a301c7a820a2501915f5a9de8c0486da82bdec7965f068477538a98743d43
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install tools
+        run: |
+          mkdir -p ~/.local/bin
+          cd "$RUNNER_TEMP"
+          curl -fsSL -o actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL -o zizmor.tar.gz \
+            "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz"
+          printf '%s  actionlint.tar.gz\n%s  zizmor.tar.gz\n' "$ACTIONLINT_SHA256" "$ZIZMOR_SHA256" | sha256sum -c -
+          tar -xzf actionlint.tar.gz -C ~/.local/bin actionlint
+          tar -xzf zizmor.tar.gz -C ~/.local/bin
+
+      - name: actionlint
+        run: actionlint -color
+
+      - name: zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: zizmor --format=github .github

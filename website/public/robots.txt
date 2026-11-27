@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://portland.n1m35h.in/sitemap.xml

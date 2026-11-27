@@ -1,0 +1,418 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+@import 'lenis/dist/lenis.css';
+
+/*
+ * Design system
+ * Font: Inter only.
+ * Type: three sizes (display, body, small) and two weights (400, 500), site-wide.
+ * Colour: ink on sky. One accent (coral) for small state cues only.
+ */
+@theme {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --text-*: initial;
+  --text-display: clamp(1.75rem, 1.35rem + 1.6vw, 2.5rem);
+  --text-display--line-height: 1.14;
+  --text-display--letter-spacing: -0.02em;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.55;
+  --text-small: 0.75rem;
+  --text-small--line-height: 1.45;
+
+  --font-weight-*: initial;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+
+  --color-ink: #0b1220;
+  --color-ink-soft: rgb(11 18 32 / 0.62);
+  --color-paper: #ffffff;
+  --color-sky-900: #2f8fe0;
+  --color-sky-600: #5db6f3;
+  --color-sky-300: #a9d8f8;
+  --color-sky-100: #e4f3fd;
+  --color-coral: #ff5a4e;
+  --color-mint: #34c759;
+
+  --animate-rise: rise 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 12px, 0);
+  }
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-paper font-sans text-body text-ink antialiased;
+    font-weight: 400;
+  }
+
+  ::selection {
+    background: rgb(93 182 243 / 0.35);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 3px;
+  }
+}
+
+@layer components {
+  /* Liquid glass: frosted fill, bright rim, soft lift. Never animated. */
+  .glass {
+    background-color: rgb(255 255 255 / 0.12);
+    background-image: linear-gradient(160deg, rgb(255 255 255 / 0.7), rgb(255 255 255 / 0.32));
+    border: 1px solid rgb(255 255 255 / 0.7);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.9),
+      inset 0 -1px 0 rgb(255 255 255 / 0.25),
+      0 10px 30px -12px rgb(16 64 120 / 0.35);
+    -webkit-backdrop-filter: blur(14px) saturate(160%);
+    backdrop-filter: blur(14px) saturate(160%);
+  }
+
+  /*
+   * Liquid glass capsule (frost, translucency, lit edge, depth):
+   * - frost: backdrop blur + saturate keeps the sky vivid through the glass
+   * - edge: masked ::before ring, lit top-left and bottom-right, dim in between
+   * - depth: inset top highlight + bottom shade, layered float shadow
+   * - light: a soft specular highlight baked into the fill (static)
+   * Nothing inside the glass moves: moving content under a backdrop blur is what makes
+   * browsers flicker at its edges.
+   */
+  .glass-card {
+    position: relative;
+    isolation: isolate;
+    background-color: rgb(255 255 255 / 0.28);
+    background-image:
+      radial-gradient(120% 90% at 18% 0%, rgb(255 255 255 / 0.7), transparent 60%),
+      linear-gradient(140deg, rgb(255 255 255 / 0.62), rgb(255 255 255 / 0.22) 58%, rgb(255 255 255 / 0.4));
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.95),
+      inset 0 -1px 1px rgb(255 255 255 / 0.45),
+      inset 0 0 14px rgb(255 255 255 / 0.28),
+      0 0 0 0.5px rgb(15 40 80 / 0.07),
+      0 2px 4px -1px rgb(15 40 80 / 0.08),
+      0 10px 22px -8px rgb(24 86 160 / 0.22),
+      0 26px 40px -22px rgb(24 86 160 / 0.28);
+    -webkit-backdrop-filter: blur(12px) saturate(170%);
+    backdrop-filter: blur(12px) saturate(170%);
+  }
+
+  .glass-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    padding: 1.25px;
+    border-radius: inherit;
+    background: linear-gradient(
+      150deg,
+      #fff,
+      rgb(255 255 255 / 0.15) 38%,
+      rgb(255 255 255 / 0.1) 62%,
+      rgb(255 255 255 / 0.85)
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  /*
+   * Sticky nav (Nav.tsx). Wide, plain row at the top of the page; docked, the row draws in
+   * to the pill's width and the glass fades up around it. One curve for every part, so the
+   * items, the pill and the colours all arrive together.
+   */
+  .nav-shell {
+    --nav-ease: cubic-bezier(0.32, 0.72, 0, 1);
+    padding: 0;
+    transition: padding 560ms var(--nav-ease);
+  }
+  .nav-shell[data-docked] {
+    padding: 10px 12px 0;
+  }
+
+  .nav-bar {
+    max-width: 64rem;
+    height: 4.5rem;
+    padding-inline: 1rem;
+    color: var(--color-paper);
+    transition:
+      max-width 560ms var(--nav-ease),
+      height 560ms var(--nav-ease),
+      padding 560ms var(--nav-ease),
+      color 320ms ease-out;
+  }
+  @media (width >= 40rem) {
+    .nav-bar {
+      padding-inline: 1.5rem;
+    }
+  }
+  [data-docked] > .nav-bar {
+    max-width: var(--dock-w);
+    height: var(--dock-h);
+    padding-inline: 10px 8px;
+    color: var(--color-ink);
+  }
+
+  .nav-link {
+    opacity: 0.9;
+    transition: opacity 150ms ease-out;
+  }
+  .nav-link:hover {
+    opacity: 1;
+  }
+  [data-docked] .nav-link {
+    opacity: 0.62;
+  }
+  [data-docked] .nav-link:hover {
+    opacity: 1;
+  }
+
+  /* Glass over the sky at the top; solid ink once inside the pill (never glass on glass). */
+  .nav-cta {
+    color: var(--color-ink);
+    background-color: rgb(255 255 255 / 0.62);
+    box-shadow:
+      inset 0 0 0 1px rgb(255 255 255 / 0.7),
+      inset 0 1px 0 rgb(255 255 255 / 0.9),
+      0 10px 30px -12px rgb(16 64 120 / 0.35);
+    -webkit-backdrop-filter: blur(14px) saturate(160%);
+    backdrop-filter: blur(14px) saturate(160%);
+    transition:
+      color 320ms ease-out,
+      background-color 320ms ease-out,
+      box-shadow 320ms ease-out,
+      transform 150ms ease-out;
+  }
+  .nav-cta:hover {
+    background-color: rgb(255 255 255 / 0.78);
+  }
+  [data-docked] .nav-cta {
+    color: var(--color-paper);
+    background-color: var(--color-ink);
+    box-shadow:
+      inset 0 0 0 1px transparent,
+      inset 0 1px 0 rgb(255 255 255 / 0.14),
+      0 1px 2px rgb(11 18 32 / 0.2);
+  }
+  [data-docked] .nav-cta:hover {
+    background-color: rgb(11 18 32 / 0.85);
+  }
+
+  /*
+   * The pill: Modifier.glass from the app, in CSS. Saturated, slightly brightened backdrop,
+   * a light frost so words stay legible over any section, a thin film, a specular rim lit
+   * top-left and bottom-right, and a soft float shadow. [data-lens] adds the rim refraction.
+   */
+  .nav-glass {
+    opacity: 0;
+    background-color: rgb(252 252 250 / 0.42);
+    background-image: linear-gradient(180deg, rgb(255 255 255 / 0.34), rgb(255 255 255 / 0.06));
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.9),
+      inset 0 -1px 1px rgb(255 255 255 / 0.4),
+      inset 0 0 12px rgb(255 255 255 / 0.22),
+      0 0 0 0.5px rgb(15 40 80 / 0.08),
+      0 2px 6px -2px rgb(15 40 80 / 0.1),
+      0 14px 32px -14px rgb(24 86 160 / 0.32);
+    -webkit-backdrop-filter: blur(10px) saturate(160%) brightness(1.06);
+    backdrop-filter: blur(10px) saturate(160%) brightness(1.06);
+    transition: opacity 420ms ease-out;
+  }
+  .nav-glass[data-lens] {
+    backdrop-filter: url(#nav-lens) blur(5px) saturate(160%) brightness(1.06);
+  }
+  .nav-glass::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    padding: 1px;
+    border-radius: inherit;
+    background: linear-gradient(
+      150deg,
+      #fff,
+      rgb(255 255 255 / 0.12) 34%,
+      rgb(255 255 255 / 0.08) 66%,
+      rgb(255 255 255 / 0.8)
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+  [data-docked] .nav-glass {
+    opacity: 1;
+    transition-delay: 80ms;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .nav-shell,
+    .nav-bar,
+    .nav-glass {
+      transition-duration: 0ms;
+    }
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    .nav-glass,
+    .nav-glass[data-lens] {
+      background: rgb(250 250 248);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+  }
+
+  /* Feature cards move and fade with the scroll; a live backdrop blur on top of that is
+     what glitches. Their backdrops are flat pastels, so a frosted fill looks the same. */
+  #features .glass-card {
+    background-color: rgb(255 255 255 / 0.72);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    .glass-card {
+      background: rgb(246 250 254);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+  }
+}
+
+@layer utilities {
+  /* Micro-animations inside glass chips. The base style is always the finished state,
+     so with reduced motion everything simply shows at rest. */
+  .loop-cols {
+    animation: cols-slide 4.8s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  }
+  .loop-caret {
+    animation: caret 1.1s steps(1) infinite;
+  }
+  .loop-swatch {
+    animation: swatch-pop 3.6s cubic-bezier(0.34, 1.56, 0.64, 1) infinite;
+  }
+  .loop-fill {
+    transform-origin: left;
+    animation: fill 3.2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  }
+  .loop-check {
+    animation: check-pop 3.2s cubic-bezier(0.34, 1.56, 0.64, 1) infinite;
+  }
+  .pop-once {
+    animation: pop-in 520ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+
+  /* Loops sleep while their section is off-screen. */
+  [data-offscreen] [class*='loop-'] {
+    animation-play-state: paused;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-rise,
+    [class*='loop-'],
+    .pop-once {
+      animation: none;
+    }
+  }
+}
+
+@keyframes cols-slide {
+  0%,
+  26% {
+    translate: 0 0;
+  }
+  33%,
+  59% {
+    translate: 100% 0;
+  }
+  66%,
+  92% {
+    translate: 200% 0;
+  }
+  100% {
+    translate: 0 0;
+  }
+}
+@keyframes caret {
+  50% {
+    opacity: 0;
+  }
+}
+@keyframes swatch-pop {
+  0%,
+  6% {
+    scale: 0;
+    opacity: 0;
+  }
+  16%,
+  84% {
+    scale: 1;
+    opacity: 1;
+  }
+  94%,
+  100% {
+    scale: 0.4;
+    opacity: 0;
+  }
+}
+@keyframes fill {
+  0% {
+    scale: 0 1;
+  }
+  60%,
+  100% {
+    scale: 1 1;
+  }
+}
+@keyframes check-pop {
+  0%,
+  58% {
+    scale: 0;
+    opacity: 0;
+  }
+  68% {
+    scale: 1.15;
+    opacity: 1;
+  }
+  74%,
+  92% {
+    scale: 1;
+    opacity: 1;
+  }
+  100% {
+    scale: 1;
+    opacity: 0;
+  }
+}
+@keyframes pop-in {
+  from {
+    scale: 0;
+    opacity: 0;
+  }
+}
+
+/*
+ * Scroll motion lives in JavaScript: Lenis smooths the native scroll and GSAP ScrollTrigger
+ * scrubs the parallax (see src/lib/scroll.ts). Elements carry marker classes only:
+ * .px-* (hero layers) and .ft-* (footer). The feature section has no scroll motion.
+ */

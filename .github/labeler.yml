@@ -32,11 +32,20 @@
           - "app/src/main/java/app/portland/ui/Detail.kt"
           - "app/src/main/java/app/portland/ui/Seek.kt"
 
+"area/website":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "website/**"
+          - ".github/workflows/website*.yml"
+          - ".github/actions/setup-website/**"
+
 "area/tests":
   - changed-files:
       - any-glob-to-any-file:
           - "app/src/test/**"
           - "app/src/androidTest/**"
+          - "website/src/**/*.test.{ts,tsx}"
+          - "website/e2e/**"
 
 "area/build":
   - changed-files:

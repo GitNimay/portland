@@ -24,6 +24,9 @@ changelog:
       labels:
         - area/ui
         - area/media
+    - title: "🌐 Website"
+      labels:
+        - area/website
     - title: "☁️ Sync & Data"
       labels:
         - area/sync-r2

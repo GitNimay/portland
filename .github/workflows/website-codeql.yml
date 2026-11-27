@@ -1,0 +1,124 @@
+name: Website CodeQL
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "website/**"
+      - ".github/workflows/website-codeql.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "website/**"
+      - ".github/workflows/website-codeql.yml"
+  schedule:
+    - cron: "45 2 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: website-codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: CodeQL (javascript-typescript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # JavaScript/TypeScript needs no build: CodeQL extracts the sources directly.
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
+        with:
+          languages: javascript-typescript
+          build-mode: none
+          queries: security-extended
+          config: |
+            paths:
+              - website
+            paths-ignore:
+              - website/dist
+              - website/node_modules
+              - website/src/routeTree.gen.ts
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
+        with:
+          category: "/language:javascript-typescript/website"
+          output: sarif-results
+          # SARIF upload to the Security tab requires a public repo or GitHub Code Security / GHAS.
+          upload: ${{ (github.event.repository.visibility == 'public' || vars.GHAS_ENABLED == 'true') && 'always' || 'never' }}
+
+      - name: Upload CodeQL SARIF artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: codeql-sarif-website
+          path: sarif-results/
+          retention-days: 14
+
+      - name: Summarize & enforce CodeQL findings
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import glob, json, os, sys
+
+          files = sorted(glob.glob("sarif-results/*.sarif"))
+          if not files:
+              print("::error::No CodeQL SARIF output found.")
+              sys.exit(1)
+
+          findings = []
+          for path in files:
+              with open(path, encoding="utf-8") as f:
+                  data = json.load(f)
+              for run in data.get("runs", []):
+                  rules = {r["id"]: r for r in run.get("tool", {}).get("driver", {}).get("rules", [])}
+                  for res in run.get("results", []):
+                      rule_id = res.get("ruleId", "unknown")
+                      level = res.get("level") or rules.get(rule_id, {}).get("defaultConfiguration", {}).get("level", "warning")
+                      msg = res.get("message", {}).get("text", "").replace("\n", " ")
+                      loc = ""
+                      locs = res.get("locations", [])
+                      if locs:
+                          phys = locs[0].get("physicalLocation", {})
+                          uri = phys.get("artifactLocation", {}).get("uri", "")
+                          line = phys.get("region", {}).get("startLine", "")
+                          loc = f"{uri}:{line}" if line else uri
+                      findings.append((level, rule_id, loc, msg))
+
+          errors = [f for f in findings if f[0] == "error"]
+          lines = [
+              "### Website CodeQL Summary",
+              f"- **Errors:** {len(errors)} | **Other:** {len(findings) - len(errors)}",
+              "",
+          ]
+          if findings:
+              lines += ["| Level | Rule | Location | Message |", "| --- | --- | --- | --- |"]
+              for level, rule_id, loc, msg in findings[:50]:
+                  safe_msg = msg.replace("|", "\\|")
+                  lines.append(f"| `{level}` | `{rule_id}` | `{loc}` | {safe_msg} |")
+          else:
+              lines.append("No alerts found.")
+
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary_path:
+              with open(summary_path, "a", encoding="utf-8") as out:
+                  out.write("\n".join(lines) + "\n")
+
+          for level, rule_id, loc, msg in findings:
+              print(f"::{'error' if level == 'error' else 'warning'}::{rule_id} ({loc}): {msg}")
+
+          if errors:
+              sys.exit(1)
+          PY

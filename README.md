@@ -41,7 +41,7 @@ No accounts, no tracking.
 
 Download the latest APK from [**Releases**](https://github.com/GitNimay/portland/releases/latest). Release builds target `arm64-v8a` phones; after the first install, updates arrive automatically.
 
-The app checks the latest GitHub release for an update (`latest.json` sits next to the APK), downloads it in the background and verifies its SHA-256 before offering a restart. Builds from before bring-your-own-R2 can only see the old `portland` R2 bucket, so CI also publishes each release there (`.github/scripts/r2-bridge-publish.sh`) until those installs have moved on.
+The app checks the latest GitHub release for an update (`latest.json` sits next to the APK), downloads it in the background and verifies its SHA-256 before offering a restart. Builds from before bring-your-own-R2 (their built-in key is revoked) need the new APK installed once by hand; it installs over them and keeps what is saved on the phone.
 
 ## Build
 

@@ -4,6 +4,7 @@ import androidx.activity.BackEventCompat
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
@@ -102,6 +103,30 @@ val LocalNav = staticCompositionLocalOf<Nav> { error("Nav not provided") }
 @OptIn(ExperimentalSharedTransitionApi::class)
 private val LocalShared = staticCompositionLocalOf<SharedTransitionScope?> { null }
 private val LocalAnim = staticCompositionLocalOf<AnimatedVisibilityScope?> { null }
+
+/**
+ * Runs [onRevived] when this screen is pushed again while it is still animating out. AnimatedContent then reuses
+ * the leaving composition (see [Screen]), remembered state and all, so one-shot state such as "already left" must
+ * be put back. It runs in composition, so the comeback's first layout already sees the reset state, and it reads
+ * the transition in its own scope, so the screen around it does not recompose on every navigation.
+ */
+@Composable
+fun ReviveEffect(onRevived: () -> Unit) {
+    val anim = LocalAnim.current ?: return
+    val leaving = anim.transition.targetState == EnterExitState.PostExit
+    val seen = remember { LeavingFlag() }
+    if (leaving) {
+        seen.value = true
+    } else if (seen.value) {
+        seen.value = false
+        onRevived()
+    }
+}
+
+/** Plain (not snapshot) memory of having been on the way out: written in composition, never observed. */
+private class LeavingFlag {
+    var value = false
+}
 
 /** Morphs a pin's media between the grid and the viewer. Apply before clip/size modifiers. */
 @Composable

@@ -201,6 +201,17 @@ fun DetailScreen(ids: List<String>, start: Int) {
     val staticBackdrop = rememberCanvasBackdrop { drawRect(p.canvas) }
     // A committed pull pops straight away: the shared-element transition carries the media home from where it was let go.
     val swipe = rememberMediaSwipe { leave() }
+    // Tapping this pin again while the viewer is still flying home brings this very screen back (see Screen.key):
+    // open it fresh, not still pulled half away with its chrome faded out and its back button spent.
+    ReviveEffect {
+        left = false
+        details = null
+        picker = false
+        confirm = false
+        swipe.reset()
+        val first = start.coerceIn(0, pins.lastIndex)
+        if (pager.currentPage != first) pager.requestScrollToPage(first)
+    }
     val chromeBackdrop = if (swipe.id != null || pager.isScrollInProgress) backdrop else staticBackdrop
     val chrome = Modifier.graphicsLayer { alpha = 1f - swipe.dismissProgress }
     // The bottom bar and filmstrip give way to the send dock as it rises into their place.

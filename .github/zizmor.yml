@@ -1,0 +1,4 @@
+rules:
+  # Suggests the `$/` self-repository syntax for local actions; `./` is what actionlint and the runner docs use.
+  self-repository:
+    disable: true

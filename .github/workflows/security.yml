@@ -26,36 +26,44 @@ jobs:
       contents: read
       security-events: write
     env:
-      GITLEAKS_VERSION: v8.30.1
+      GITLEAKS_VERSION: 8.30.1
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
-      - name: Cache Gitleaks OSS binary
-        id: cache-gitleaks
-        uses: actions/cache@v6
-        with:
-          path: ~/.local/bin/gitleaks
-          key: ${{ runner.os }}-gitleaks-${{ env.GITLEAKS_VERSION }}
-
-      - name: Install Gitleaks OSS binary
-        if: steps.cache-gitleaks.outputs.cache-hit != 'true'
+      - name: Install Gitleaks
         run: |
+          curl -fsSL -o "$RUNNER_TEMP/gitleaks.tar.gz" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "$GITLEAKS_SHA256  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum -c -
           mkdir -p ~/.local/bin
-          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz" \
-            | tar -xz -C ~/.local/bin gitleaks
-          chmod +x ~/.local/bin/gitleaks
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C ~/.local/bin gitleaks
 
+      # Pull requests scan only their own commits and pushes only the pushed range, so a finding already on main does
+      # not fail every unrelated PR. The weekly schedule (and manual runs) re-audit the whole history.
       - name: Run Gitleaks secret scan
         id: scan
         continue-on-error: true
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
         run: |
-          ~/.local/bin/gitleaks git --verbose --redact --config .gitleaks.toml \
+          range=()
+          if [ "$EVENT" = pull_request ]; then
+            range=(--log-opts "$PR_BASE..$PR_HEAD")
+          elif [ "$EVENT" = push ] && git cat-file -e "${PUSH_BEFORE}^{commit}" 2>/dev/null; then
+            range=(--log-opts "$PUSH_BEFORE..$GITHUB_SHA")
+          fi
+          ~/.local/bin/gitleaks git --verbose --redact --config .gitleaks.toml "${range[@]}" \
             --report-format sarif --report-path gitleaks.sarif .
 
       - name: Upload Gitleaks SARIF
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
         if: always() && hashFiles('gitleaks.sarif') != ''
         with:
           sarif_file: gitleaks.sarif
@@ -73,10 +81,12 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Run Trivy filesystem scan
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -89,7 +99,7 @@ jobs:
           exit-code: "0"
 
       - name: Upload Trivy SARIF
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
         if: always() && hashFiles('trivy-results.sarif') != ''
         with:
           sarif_file: trivy-results.sarif
@@ -148,7 +158,7 @@ jobs:
       actions: read
       contents: read
       security-events: write
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@v2.7.1
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@32d3cd482bdadfb38b186c0ad1b031902d55d932 # v2.7.1
     with:
       fail-on-vuln: true
       upload-sarif: true
@@ -160,7 +170,7 @@ jobs:
       actions: read
       contents: read
       security-events: write
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.7.1
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@32d3cd482bdadfb38b186c0ad1b031902d55d932 # v2.7.1
     with:
       fail-on-vuln: true
       upload-sarif: true

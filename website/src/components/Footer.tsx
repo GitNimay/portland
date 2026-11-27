@@ -1,4 +1,5 @@
 import { useRef } from 'react'
+import { Cloud } from '#/components/Cloud'
 import { DOWNLOAD_URL, REPO_URL } from '#/lib/links'
 import { useFooterMotion } from '#/lib/scroll'
 
@@ -31,7 +32,7 @@ export function Footer() {
   return (
     <footer
       ref={ref}
-      className="ft-scope relative isolate overflow-hidden bg-[linear-gradient(180deg,#ffffff_0%,#ffffff_26%,#e4f3fd_40%,#a9d8f8_58%,#5db6f3_82%,#3a9be6_100%)]"
+      className="ft-scope ft-stage relative isolate overflow-hidden bg-[linear-gradient(180deg,#ffffff_0%,#ffffff_26%,#e4f3fd_40%,#a9d8f8_58%,#5db6f3_82%,#3a9be6_100%)]"
     >
       <div className="mx-auto flex max-w-5xl flex-col gap-12 px-4 pt-8 sm:flex-row sm:justify-between sm:px-6 sm:pt-10">
         <div className="max-w-xs">
@@ -78,11 +79,18 @@ export function Footer() {
 
       <p className="mx-auto mt-14 max-w-5xl px-4 text-small text-ink-soft tabular-nums sm:px-6">© 2026 Portland</p>
 
-      {/* Wordmark artwork: scales with the viewport like an image, so it sits outside the type scale. */}
-      <div aria-hidden className="pointer-events-none relative mt-4 h-[13rem] sm:h-[clamp(9rem,24vw,22rem)]">
+      {/*
+        Wordmark artwork: scales like an image, so it sits outside the type scale. On wide screens
+        it and its clouds share the stage unit (styles.css), so the clouds always cover the same
+        share of the letters, however wide the window.
+      */}
+      <div
+        aria-hidden
+        className="pointer-events-none relative mt-4 h-[13rem] overflow-x-clip sm:mt-10 sm:h-[calc(var(--u)*330)]"
+      >
         <svg
           viewBox="0 0 1000 230"
-          className="ft-mark absolute inset-x-0 bottom-[34%] mx-auto w-[min(100%,72rem)] px-4 sm:bottom-[8%]"
+          className="ft-mark absolute inset-x-0 bottom-[34%] mx-auto w-[min(100%,72rem)] px-4 sm:bottom-[calc(var(--u)*58)] sm:w-[min(100%,calc(var(--u)*960))] sm:px-0"
           preserveAspectRatio="xMidYMax meet"
         >
           <defs>
@@ -105,46 +113,24 @@ export function Footer() {
         </svg>
 
         {/*
-          Cloud bank: four overlapping clouds spanning the full width, sunk below the edge so
-          their flat undersides never show, over a soft white base that closes the page.
+          Cloud bank in two rows that settle at different speeds, sunk below the edge so their
+          flat undersides never show, over a soft white base that closes the page.
         */}
-        <div className="ft-cloud absolute inset-x-0 bottom-0 h-full">
-          <img
-            src="/hero/cloud-a.webp"
-            alt=""
-            width={1120}
-            height={403}
-            loading="lazy"
-            decoding="async"
-            className="absolute -bottom-[2%] -left-[22%] w-[72%] max-w-none sm:-bottom-[22%] sm:-left-[14%] sm:w-[54%]"
-          />
-          <img
-            src="/hero/cloud-a.webp"
-            alt=""
-            width={1120}
-            height={403}
-            loading="lazy"
-            decoding="async"
-            className="absolute -right-[22%] -bottom-[4%] w-[72%] max-w-none -scale-x-100 sm:-right-[14%] sm:-bottom-[24%] sm:w-[54%]"
-          />
-          <img
-            src="/hero/cloud-a.webp"
-            alt=""
-            width={1120}
-            height={403}
-            loading="lazy"
-            decoding="async"
-            className="absolute -bottom-[8%] left-[8%] w-[62%] max-w-none -scale-x-100 sm:-bottom-[30%] sm:left-[16%] sm:w-[46%]"
-          />
-          <img
-            src="/hero/cloud-a.webp"
-            alt=""
-            width={1120}
-            height={403}
-            loading="lazy"
-            decoding="async"
-            className="absolute -bottom-[14%] left-1/2 w-full max-w-none -translate-x-1/2 sm:-bottom-[38%] sm:w-[72%]"
-          />
+        <div className="ft-cloud-back absolute inset-0">
+          <Cloud lazy narrow="-bottom-[2%] -left-[22%] w-[72%]" wide={{ x: -600, b: -64, w: 760 }} />
+          <Cloud lazy narrow="-right-[22%] -bottom-[4%] w-[72%]" wide={{ x: 620, b: -76, w: 760 }} flip />
+          <Cloud lazy tier={1} wide={{ x: -1290, b: -70, w: 780 }} flip />
+          <Cloud lazy tier={1} wide={{ x: 1310, b: -80, w: 780 }} />
+          <Cloud lazy tier={2} wide={{ x: -1980, b: -78, w: 780 }} />
+          <Cloud lazy tier={2} wide={{ x: 2000, b: -70, w: 780 }} flip />
+        </div>
+        <div className="ft-cloud absolute inset-0">
+          <Cloud lazy narrow="-bottom-[8%] left-[8%] w-[62%]" wide={{ x: -240, b: -36, w: 620 }} flip />
+          <Cloud lazy narrow="-bottom-[14%] left-1/2 w-full -translate-x-1/2" wide={{ x: 180, b: -110, w: 900 }} />
+          <Cloud lazy wide={{ x: -900, b: -70, w: 720 }} />
+          <Cloud lazy wide={{ x: 920, b: -80, w: 720 }} flip />
+          <Cloud lazy tier={2} wide={{ x: -1640, b: -76, w: 720 }} flip />
+          <Cloud lazy tier={2} wide={{ x: 1660, b: -70, w: 720 }} />
           <div className="absolute inset-x-0 -bottom-px h-[22%] bg-[linear-gradient(180deg,transparent,rgb(255_255_255/0.9)_60%,#ffffff)]" />
         </div>
       </div>

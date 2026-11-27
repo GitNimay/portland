@@ -1,4 +1,4 @@
-import { act, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DOWNLOAD_URL, REPO_URL } from '#/lib/links'
 import { DOCK_AT, UNDOCK_AT } from '#/lib/nav'
@@ -84,6 +84,37 @@ describe('Nav', () => {
     const { container } = render(<Nav />)
     expect(container.querySelector('#nav-lens')).toBeNull()
     expect(container.querySelector('.nav-glass')).not.toHaveAttribute('data-lens')
+  })
+
+  it('glides one hover highlight to the link under the mouse, and hides it on leave', () => {
+    render(<Nav />)
+    const list = screen.getByRole('link', { name: 'GitHub' }).closest('ul')!
+    fireEvent.pointerOver(screen.getByRole('link', { name: 'GitHub' }), { pointerType: 'mouse' })
+    expect(list).toHaveAttribute('data-hl')
+    expect(list.style.getPropertyValue('--hl-x')).toMatch(/px$/)
+    expect(list.style.getPropertyValue('--hl-w')).toMatch(/px$/)
+
+    fireEvent.pointerLeave(list, { pointerType: 'mouse' })
+    expect(list).not.toHaveAttribute('data-hl')
+  })
+
+  it('keeps the hover highlight for the mouse only', () => {
+    render(<Nav />)
+    const link = screen.getByRole('link', { name: 'Privacy' })
+    fireEvent.pointerOver(link, { pointerType: 'touch' })
+    expect(link.closest('ul')).not.toHaveAttribute('data-hl')
+  })
+
+  it('marks the pill settled only after it has finished forming', () => {
+    render(<Nav />)
+    scrollTo(DOCK_AT + 1)
+    expect(shell()).not.toHaveAttribute('data-settled')
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(shell()).toHaveAttribute('data-settled')
+    scrollTo(0)
+    expect(shell()).not.toHaveAttribute('data-settled')
   })
 
   it('stops listening to scroll and resize when unmounted', () => {

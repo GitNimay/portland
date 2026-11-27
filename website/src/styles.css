@@ -34,7 +34,16 @@
   --color-coral: #ff5a4e;
   --color-mint: #34c759;
 
-  --animate-rise: rise 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  /* Fill backwards only: a finished animation that kept filling would make each element a
+     backdrop root, and the glass inside it would stop blurring the page behind. */
+  --animate-rise: rise 700ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+@keyframes nav-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -10px, 0);
+  }
 }
 
 @keyframes rise {
@@ -141,10 +150,16 @@
 
   /*
    * Sticky nav (Nav.tsx). Wide, plain row at the top of the page; docked, the items translate
-   * inward to the pill's width and the glass fades up around them without triggering layout reflow.
+   * inward to the pill's width while the glass draws in with them, on one curve and duration.
    */
   .nav-shell {
     --nav-ease: cubic-bezier(0.32, 0.72, 0, 1);
+    --nav-dur: 620ms;
+  }
+
+  /* Eases down into place once on load. */
+  .nav-enter {
+    animation: nav-in 800ms cubic-bezier(0.16, 1, 0.3, 1) 120ms backwards;
   }
 
   .nav-bar {
@@ -164,13 +179,14 @@
   }
 
   .nav-brand {
-    transition: transform 560ms var(--nav-ease);
+    transition: transform var(--nav-dur) var(--nav-ease);
   }
   [data-docked] .nav-brand {
     transform: translate3d(var(--dock-shift-left, 0px), 0, 0);
   }
 
   .nav-link {
+    position: relative;
     opacity: 0.9;
     transition: opacity 150ms ease-out;
   }
@@ -216,7 +232,7 @@
       color 320ms ease-out,
       background-color 320ms ease-out,
       box-shadow 320ms ease-out,
-      transform 560ms var(--nav-ease),
+      transform var(--nav-dur) var(--nav-ease),
       scale 150ms ease-out;
   }
   .nav-cta:hover {
@@ -238,19 +254,56 @@
   }
 
   /*
-   * The pill: Modifier.glass from the app, in CSS. Fixed at its docked dimensions and centred
-   * vertically (10px + 52px/2 = 36px, matching the 72px bar) so docking animates opacity and
-   * transform only. Backdrop filtering activates only while docked.
+   * Hover highlight (Nav.tsx useHoverHighlight): one soft capsule that glides between links.
+   * `data-hl-jump` places it without sliding when the pointer first arrives.
+   */
+  .nav-hl {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: var(--hl-w, 0px);
+    height: 2rem;
+    border-radius: 9999px;
+    background-color: rgb(255 255 255 / 0.2);
+    opacity: 0;
+    pointer-events: none;
+    transform: translate3d(var(--hl-x, 0px), -50%, 0) scale(0.92);
+    transition:
+      transform 420ms var(--nav-ease),
+      width 420ms var(--nav-ease),
+      opacity 180ms ease-out,
+      background-color 320ms ease-out;
+  }
+  [data-hl] > .nav-hl {
+    opacity: 1;
+    transform: translate3d(var(--hl-x, 0px), -50%, 0);
+  }
+  [data-hl-jump] > .nav-hl {
+    transition:
+      opacity 180ms ease-out,
+      transform 260ms var(--nav-ease);
+  }
+  [data-docked] .nav-hl,
+  .nav-bar[data-tone='paper'] .nav-hl {
+    background-color: rgb(11 18 32 / 0.06);
+  }
+
+  /*
+   * The pill: Modifier.glass from the app, in CSS. Centred vertically (10px + 52px/2 = 36px,
+   * matching the 72px bar). Undocked it is invisible and as wide as the bar; docking narrows it
+   * to the pill while it fades up, so the glass condenses around the items as they draw in.
+   * Only this empty, absolutely placed layer changes width, so nothing else reflows. Backdrop
+   * filtering is on only while docked, and the lens only once the pill has settled.
    */
   .nav-glass {
     top: 10px;
     left: 50%;
-    width: var(--dock-w);
+    width: var(--float-w, var(--dock-w));
     height: var(--dock-h);
     opacity: 0;
-    transform: translate3d(-50%, 0, 0) scale(0.97);
-    background-color: rgb(252 252 250 / 0.42);
-    background-image: linear-gradient(180deg, rgb(255 255 255 / 0.34), rgb(255 255 255 / 0.06));
+    transform: translate3d(-50%, 0, 0) scaleY(0.86);
+    background-color: rgb(252 252 250 / 0.58);
+    background-image: linear-gradient(180deg, rgb(255 255 255 / 0.4), rgb(255 255 255 / 0.12));
     box-shadow:
       inset 0 1px 0 rgb(255 255 255 / 0.9),
       inset 0 -1px 1px rgb(255 255 255 / 0.4),
@@ -261,18 +314,23 @@
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
     transition:
-      opacity 420ms ease-out,
-      transform 560ms var(--nav-ease);
+      opacity 260ms ease-out,
+      width var(--nav-dur) var(--nav-ease),
+      transform var(--nav-dur) var(--nav-ease);
   }
   [data-docked] .nav-glass {
+    width: var(--dock-w);
     opacity: 1;
-    transform: translate3d(-50%, 0, 0) scale(1);
-    -webkit-backdrop-filter: blur(10px) saturate(160%) brightness(1.06);
-    backdrop-filter: blur(10px) saturate(160%) brightness(1.06);
-    transition-delay: 80ms, 0ms;
+    transform: translate3d(-50%, 0, 0);
+    -webkit-backdrop-filter: blur(16px) saturate(160%) brightness(1.06);
+    backdrop-filter: blur(16px) saturate(160%) brightness(1.06);
+    transition:
+      opacity 360ms ease-out,
+      width var(--nav-dur) var(--nav-ease),
+      transform var(--nav-dur) var(--nav-ease);
   }
-  [data-docked] .nav-glass[data-lens] {
-    backdrop-filter: url(#nav-lens) blur(5px) saturate(160%) brightness(1.06);
+  [data-docked][data-settled] .nav-glass[data-lens] {
+    backdrop-filter: url(#nav-lens) blur(9px) saturate(160%) brightness(1.06);
   }
   .nav-glass::before {
     content: '';
@@ -302,8 +360,12 @@
     .nav-brand,
     .nav-bar,
     .nav-cta,
-    .nav-glass {
+    .nav-glass,
+    .nav-hl {
       transition-duration: 0ms;
+    }
+    .nav-enter {
+      animation: none;
     }
   }
 
@@ -394,7 +456,7 @@
     animation: check-pop 3.2s cubic-bezier(0.34, 1.56, 0.64, 1) infinite;
   }
   .pop-once {
-    animation: pop-in 520ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    animation: pop-in 520ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
   }
 
   /* Loops sleep while their section is off-screen. */
@@ -487,58 +549,172 @@
 }
 
 /*
+ * Stage units for the hero and footer artwork on wide screens (Cloud.tsx).
+ *
+ * `--u` is one pixel of a 1440px-wide design. It follows the window up to a laptop-sized
+ * stage, then stops: on a 22" or 27" monitor the clouds, phone and wordmark keep the same
+ * proportions instead of swelling with the window, and flank clouds fill the extra width.
+ * The hero also caps it by the window height, so the phone still rises out of the bank on
+ * short, wide windows.
+ */
+@media (width >= 40rem) {
+  .hero-stage {
+    --u: clamp(0.4px, min(100vw / 1440, 100svh / 860), 1.3px);
+    --pw: max(16.5rem, calc(var(--u) * 312));
+  }
+  .ft-stage {
+    --u: clamp(0.4px, 100vw / 1440, 1.25px);
+  }
+
+  /* Unlayered, so it wins over the phone placement utilities. */
+  .cloud {
+    left: calc(50% + var(--x) * var(--u));
+    right: auto;
+    bottom: calc(var(--b) * var(--u));
+    width: calc(var(--w) * var(--u));
+    translate: -50% 0;
+  }
+}
+
+/*
+ * Flank clouds (Cloud.tsx `tier`). The core bank covers about ±860 stage units, so the hero's
+ * flanks are needed only once the window is wider than that: a very wide aspect (the unit is
+ * capped by height) or past the width cap. The footer's unit is capped by width alone.
+ */
+.cloud[data-tier] {
+  display: none;
+}
+@media (min-aspect-ratio: 41/20), (min-width: 2240px) {
+  .hero-stage .cloud[data-tier='1'] {
+    display: block;
+  }
+}
+@media (min-aspect-ratio: 10/3), (min-width: 3700px) {
+  .hero-stage .cloud[data-tier='2'] {
+    display: block;
+  }
+}
+@media (min-width: 2400px) {
+  .ft-stage .cloud[data-tier='1'] {
+    display: block;
+  }
+}
+@media (min-width: 4000px) {
+  .ft-stage .cloud[data-tier='2'] {
+    display: block;
+  }
+}
+
+/* The cloud bank gathers once on load: side clouds drift in, centre clouds settle up. */
+@keyframes cloud-in {
+  from {
+    opacity: 0;
+    transform: translate3d(var(--from-x, 0), var(--from-y, 0), 0);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .hero-stage .cloud {
+    animation: cloud-in 1.8s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+  .hero-stage .cloud[data-from='left'] {
+    --from-x: -9%;
+    --from-y: 6%;
+  }
+  .hero-stage .cloud[data-from='right'] {
+    --from-x: 9%;
+    --from-y: 6%;
+  }
+  .hero-stage .cloud[data-from='below'] {
+    --from-y: 16%;
+  }
+  .hero-stage .px-cloud-far .cloud {
+    animation-delay: 0ms;
+  }
+  .hero-stage .px-cloud-back .cloud {
+    animation-delay: 80ms;
+  }
+  .hero-stage .px-cloud-front .cloud {
+    animation-delay: 160ms;
+  }
+  .hero-stage .px-cloud-near .cloud {
+    animation-delay: 220ms;
+  }
+}
+
+/*
  * Scroll-driven parallax: runs natively on the GPU compositor thread in modern Chromium/Safari
  * via CSS Scroll-Driven Animations, with GSAP ScrollTrigger as automatic fallback (src/lib/scroll.ts).
+ *
+ * Reads as a camera sinking into the cloud bank: the sky recedes and the headline drifts
+ * back into it, the phone settles into the bank, and each cloud row rises past at its own
+ * speed, the nearest ones growing as they come towards you. Pointer drift (useHeroPointer)
+ * moves the same layers with the `translate` property, which composes with these transforms.
  */
+.px-cloud-front,
+.px-cloud-near {
+  transform-origin: 50% 100%;
+}
+
 @keyframes px-sky {
   to {
-    transform: translate3d(0, 22svh, 0);
+    transform: translate3d(0, 30svh, 0) scale(1.08);
   }
 }
 @keyframes px-content {
+  65% {
+    opacity: 0;
+  }
   to {
-    transform: translate3d(0, 14svh, 0);
-    opacity: 0.35;
+    transform: translate3d(0, 24svh, 0) scale(0.94);
+    opacity: 0;
   }
 }
 @keyframes px-phone {
   to {
-    transform: translate3d(0, 4svh, 0);
+    transform: translate3d(0, 7svh, 0) scale(0.97);
   }
 }
 @keyframes px-cloud-far {
   to {
-    transform: translate3d(0, -2svh, 0);
+    transform: translate3d(0, -4svh, 0);
   }
 }
 @keyframes px-cloud-back {
   to {
-    transform: translate3d(0, -5svh, 0);
+    transform: translate3d(0, -9svh, 0);
   }
 }
 @keyframes px-cloud-front {
   to {
-    transform: translate3d(0, -8svh, 0);
+    transform: translate3d(0, -15svh, 0) scale(1.04);
   }
 }
 @keyframes px-cloud-near {
   to {
-    transform: translate3d(0, -13svh, 0);
+    transform: translate3d(0, -24svh, 0) scale(1.12);
   }
 }
 @keyframes ft-mark {
   from {
-    transform: translate3d(0, 45%, 0);
-    opacity: 0.2;
+    transform: translate3d(0, 55%, 0) scale(0.94);
+    opacity: 0;
   }
   to {
     transform: translate3d(0, 0, 0);
     opacity: 1;
   }
 }
+@keyframes ft-cloud-back {
+  from {
+    transform: translate3d(0, 10%, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
 @keyframes ft-cloud {
   from {
-    transform: translate3d(0, 18%, 0);
+    transform: translate3d(0, 26%, 0);
   }
   to {
     transform: translate3d(0, 0, 0);
@@ -598,11 +774,15 @@
       animation-range: entry 0% entry 100%;
     }
 
-    .ft-cloud {
+    .ft-cloud,
+    .ft-cloud-back {
       will-change: transform;
       animation: ft-cloud linear both;
       animation-timeline: --footer-view;
       animation-range: entry 0% entry 100%;
+    }
+    .ft-cloud-back {
+      animation-name: ft-cloud-back;
     }
   }
 }

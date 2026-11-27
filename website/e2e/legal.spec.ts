@@ -49,7 +49,11 @@ test.describe('legal pages', () => {
     expect(xml).not.toContain('<priority>')
 
     expect((await request.get('/llms.txt')).status()).toBe(200)
-    expect((await request.get('/.well-known/security.txt')).status()).toBe(200)
+    // Served as /security.txt; production rewrites /.well-known/security.txt to the same file
+    // (GitHub Actions artifact upload drops hidden directories, so CI preview cannot host .well-known/).
+    const security = await request.get('/security.txt')
+    expect(security.status()).toBe(200)
+    expect(await security.text()).toContain('Canonical: https://www.portland.n1m35h.in/.well-known/security.txt')
   })
 })
 

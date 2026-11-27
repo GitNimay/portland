@@ -22,7 +22,9 @@ describe('Privacy page', () => {
       'Changes',
     ])
     expect(within(primary()).getByRole('link', { name: 'Privacy' })).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByRole('navigation', { name: 'Related' }).querySelector('a[href="/llms.txt"]')).not.toBeNull()
+    const related = screen.getByRole('navigation', { name: 'Related' })
+    expect(related.querySelector('a[href="/llms.txt"]')).not.toBeNull()
+    expect(related.querySelector('a[href="/security.txt"]')).not.toBeNull()
     expect(screen.getByText(/Updated 27 November 2026/)).toBeInTheDocument()
   })
 })

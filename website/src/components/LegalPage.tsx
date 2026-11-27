@@ -186,6 +186,9 @@ function LegalPage({
               <a href="/sitemap.xml">Sitemap</a>
             </li>
             <li>
+              <a href="/security.txt">Security</a>
+            </li>
+            <li>
               <Out href={REPO_URL}>GitHub</Out>
             </li>
           </ul>

@@ -607,14 +607,17 @@
   }
 }
 
-/* Editorial reading pages. Flat stone, no cards. The lead is the only serif; everything else stays Inter. */
+/*
+ * Editorial reading pages. Same paper and ink as the rest of the site — no cards, no stone wash.
+ * The lead is the only serif; everything else stays Inter.
+ */
 .legal {
-  background: #eae9e1;
-  color: #4a4a45;
+  background: var(--color-paper);
+  color: var(--color-ink-soft);
 }
 
 .legal-kicker {
-  color: #232320;
+  color: var(--color-ink);
   font-size: 0.75rem;
   font-weight: 500;
   letter-spacing: 0.16em;
@@ -623,14 +626,14 @@
 }
 
 .legal-lead {
-  color: #232320;
+  color: var(--color-ink);
   font-family: 'Iowan Old Style', Palatino, 'Palatino Linotype', 'Liberation Serif', Georgia, serif;
   font-weight: 400;
 }
 
 .legal-mark {
-  background-color: #b6c5cf;
-  color: #232320;
+  background-color: var(--color-sky-100);
+  color: var(--color-ink);
   padding: 0.02em 0.16em;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
@@ -638,7 +641,7 @@
 
 .legal-copy a,
 .legal footer a {
-  color: #232320;
+  color: var(--color-ink);
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 0.18em;

@@ -88,7 +88,7 @@ describe('crawler files', () => {
     expect(llms).toContain(`${SITE_URL}/tnc`)
     expect(llms).toContain('https://github.com/GitNimay/portland')
 
-    const security = publicFile('.well-known/security.txt')
+    const security = publicFile('security.txt')
     expect(security).toContain('Contact: https://github.com/GitNimay/portland/security/advisories/new')
     expect(security).toContain('Expires: 2027-11-27T23:59:59.000Z')
     expect(security).toContain(`Canonical: ${SITE_URL}/.well-known/security.txt`)

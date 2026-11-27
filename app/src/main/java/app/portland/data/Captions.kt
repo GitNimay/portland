@@ -12,7 +12,6 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import app.portland.App
-import app.portland.BuildConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
@@ -36,10 +35,12 @@ object Captions {
     private const val PROMPT = "Caption this saved inspiration image in under 12 words: what it shows and its visual style. " +
         "Plain sentence fragment, no preamble, no quotes, no trailing period."
 
-    val enabled = BuildConfig.R2_ACCOUNT_ID.isNotEmpty() && BuildConfig.AI_TOKEN.isNotEmpty()
+    /** Runs on the user’s own account, with the token they connected R2 with, when that token may use Workers AI. */
+    val enabled: Boolean get() = R2.config?.let { it.captions && it.apiToken != null } == true
 
     /** Captions every pin that has none yet. Chained, so runs never overlap and nothing queued is dropped. */
     fun schedule(context: Context) {
+        Cloud.load(context)
         if (!enabled) return
         val work = OneTimeWorkRequestBuilder<CaptionWorker>()
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
@@ -52,6 +53,7 @@ object Captions {
 
     /** Returns the caption ("" when the model gave nothing usable). Throws IOException when worth retrying. */
     suspend fun describe(webp: ByteArray): String = withContext(Dispatchers.IO) {
+        val config = R2.config?.takeIf { it.captions } ?: throw IOException("no Workers AI token connected")
         val image = "data:image/webp;base64," + Base64.encodeToString(webp, Base64.NO_WRAP)
         val body = JSONObject()
             .put("max_tokens", 40)
@@ -60,8 +62,8 @@ object Captions {
                 .put(JSONObject().put("type", "text").put("text", PROMPT))
                 .put(JSONObject().put("type", "image_url").put("image_url", JSONObject().put("url", image))))))
         val request = Request.Builder()
-            .url("https://api.cloudflare.com/client/v4/accounts/${BuildConfig.R2_ACCOUNT_ID}/ai/run/$MODEL")
-            .header("Authorization", "Bearer ${BuildConfig.AI_TOKEN}")
+            .url("https://api.cloudflare.com/client/v4/accounts/${config.accountId}/ai/run/$MODEL")
+            .header("Authorization", "Bearer ${config.apiToken}")
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
         // Shares R2's connection pool with a bounded call timeout; the signing interceptor ignores non-R2 hosts.
@@ -88,6 +90,8 @@ internal fun cleanCaption(s: String): String =
 
 class CaptionWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
+        Cloud.load(applicationContext)
+        if (!Captions.enabled) return Result.success() // disconnected since this run was queued
         val store = (applicationContext as App).store
         val todo = store.library.value.pins.filter { it.caption == null }
         val retry = AtomicBoolean(false)

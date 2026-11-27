@@ -21,27 +21,34 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.Request
+import org.json.JSONException
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 
-/** A build CI published to R2 (releases/latest.json). */
+/** A build CI published as a GitHub release: its latest.json asset. [apk] is the APK asset’s download URL. */
 data class Release(val versionCode: Int, val versionName: String, val apk: String, val sha256: String) {
     companion object {
         fun parse(json: String) = JSONObject(json).run {
-            Release(getInt("versionCode"), getString("versionName"), getString("apk"), getString("sha256").lowercase())
+            val apk = getString("apk")
+            if (!apk.startsWith("https://")) throw JSONException("apk must be an https URL")
+            Release(getInt("versionCode"), getString("versionName"), apk, getString("sha256").lowercase())
         }
     }
 }
 
 /**
- * Self-updates from CI builds in R2: download in the background, verify, then install when the user
+ * Self-updates from the public GitHub releases (no keys in the app): download in the background, verify, then install when the user
  * taps Restart. Android 12+ needs no installer prompt for a self-update, but Play Protect still scans
  * each new build of an unverified sideloaded app, so installs only start while the user is here to see it.
  */
 object Updater {
-    // Debug builds are signed with a different key, so a CI build could never replace them.
-    private val enabled = !BuildConfig.DEBUG && R2.enabled
+    // Debug builds are signed with a different key, so a CI build could never replace them; nor can it replace
+    // the separately installed profiling build (app.portland.bp).
+    private val enabled = !BuildConfig.DEBUG && BuildConfig.APPLICATION_ID == "app.portland"
+
+    /** GitHub redirects this to the newest release’s asset, so it always names the latest build. */
+    private const val LATEST = "https://github.com/GitNimay/portland/releases/latest/download/latest.json"
     private val lock = Mutex()
     private val installLock = Mutex()
     private val _ready = MutableStateFlow<Release?>(null)
@@ -58,7 +65,7 @@ object Updater {
         if (!enabled) return
         lock.withLock {
             try {
-                val release = R2.get("releases/latest.json")?.let { Release.parse(it.decodeToString()) } ?: return
+                val release = fetchLatest() ?: return
                 if (release.versionCode <= BuildConfig.VERSION_CODE || _ready.value == release) return
                 val apk = apkFile(context)
                 withContext(Dispatchers.IO) {
@@ -126,9 +133,19 @@ object Updater {
     private fun apkFile(context: Context) = File(context.cacheDir, "update.apk")
     internal fun relaunchMarker(context: Context) = File(context.filesDir, "relaunch-after-update")
 
+    private suspend fun fetchLatest(): Release? = withContext(Dispatchers.IO) {
+        R2.base.newCall(Request.Builder().url(LATEST).build()).execute().use { r ->
+            when {
+                r.code == 404 -> null // no release carries a manifest yet
+                r.isSuccessful -> Release.parse(r.body.string())
+                else -> throw IOException("latest.json ${r.code}")
+            }
+        }
+    }
+
     private fun download(release: Release, into: File) {
         val tmp = File(into.path + ".part")
-        R2.http.newCall(Request.Builder().url(R2.url(release.apk)).build()).execute().use { r ->
+        R2.base.newCall(Request.Builder().url(release.apk).build()).execute().use { r ->
             if (!r.isSuccessful) throw IOException("download ${r.code}")
             r.body.byteStream().use { input -> tmp.outputStream().buffered().use { input.copyTo(it) } }
         }

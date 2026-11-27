@@ -39,7 +39,14 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-android-gradle
 
-      # No secrets here: runs JVM unit tests in local-only mode.
+      # A manifest from the release script, so ReleaseTest proves the app parses exactly what CI publishes.
+      - name: Sample update manifest
+        run: |
+          printf 'sample' > "$RUNNER_TEMP/sample.apk"
+          bash .github/scripts/release-manifest.sh "$RUNNER_TEMP/sample.apk" 100 1.0.100 "$GITHUB_REPOSITORY" "$RUNNER_TEMP/manifests"
+          echo "PORTLAND_RELEASE_MANIFEST=$RUNNER_TEMP/manifests/latest.json" >> "$GITHUB_ENV"
+
+      # No secrets here: runs JVM unit tests in local-only mode (R2LiveTest skips itself).
       - name: Run unit tests
         run: ./gradlew :app:testDebugUnitTest --stacktrace
 
@@ -125,6 +132,13 @@ jobs:
       - name: Assemble Release APK
         run: ./gradlew :app:assembleRelease -x lintVitalRelease --stacktrace
 
+      # The same manifest script and checks the publish job runs, on this PR's APK, so a broken update path fails here.
+      - name: Check update manifests
+        run: |
+          apk=app/build/outputs/apk/release/app-release.apk
+          bash .github/scripts/release-manifest.sh "$apk" 100 1.0.100 "$GITHUB_REPOSITORY" "$RUNNER_TEMP/manifests" "PR check"
+          bash .github/scripts/check-release-manifest.sh "$apk" "$RUNNER_TEMP/manifests"
+
       - name: Write size summary
         run: |
           apk=app/build/outputs/apk/release/app-release.apk
@@ -156,6 +170,12 @@ jobs:
         with:
           cache-write: "true"
           cache-android-lint: "true"
+
+      - name: Sample update manifest
+        run: |
+          printf 'sample' > "$RUNNER_TEMP/sample.apk"
+          bash .github/scripts/release-manifest.sh "$RUNNER_TEMP/sample.apk" 100 1.0.100 "$GITHUB_REPOSITORY" "$RUNNER_TEMP/manifests"
+          echo "PORTLAND_RELEASE_MANIFEST=$RUNNER_TEMP/manifests/latest.json" >> "$GITHUB_ENV"
 
       - name: Test, lint and assemble
         run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --continue --stacktrace
@@ -192,8 +212,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # Read-only: this build bakes the R2 and AI credentials into BuildConfig, so its outputs must never reach the
-      # Actions cache, which fork pull requests can restore.
+      # Read-only: this build runs with the release signing key, so its outputs must never reach the Actions cache,
+      # which fork pull requests can restore. (No cloud keys are built in: users connect their own R2 in the app.)
       - uses: ./.github/actions/setup-android-gradle
 
       - name: Version and signing key
@@ -213,11 +233,6 @@ jobs:
       # Secrets are scoped to the one step that needs them. lintVitalRelease is skipped: verify runs the full lintDebug.
       - name: Assemble Release APK
         env:
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
-          R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
-          AI_TOKEN: ${{ secrets.AI_TOKEN }}
           RELEASE_PASSWORD: ${{ secrets.RELEASE_PASSWORD }}
           RELEASE_ALIAS: ${{ secrets.RELEASE_ALIAS }}
         run: ./gradlew :app:assembleRelease -x lintVitalRelease --stacktrace
@@ -294,41 +309,41 @@ jobs:
         with:
           subject-path: release-artifacts/app-release.apk
 
-      - name: Publish to R2
+      # Two manifests from one script (checked on every PR too): latest.json for current builds, which read it from
+      # the GitHub release, and legacy-latest.json for the R2 bridge below.
+      - name: Update manifests
+        run: |
+          apk=release-artifacts/app-release.apk
+          sha=$(bash .github/scripts/release-manifest.sh "$apk" "$VERSION_CODE" "$VERSION_NAME" "$GITHUB_REPOSITORY" \
+            "$RUNNER_TEMP/manifests" "$(git log -1 --pretty=%s)")
+          bash .github/scripts/check-release-manifest.sh "$apk" "$RUNNER_TEMP/manifests"
+          cp "$RUNNER_TEMP/manifests/latest.json" release-artifacts/latest.json
+          echo "APK_SHA256=$sha" >> "$GITHUB_ENV"
+
+      # The in-app updater reads releases/latest/download/latest.json, so the manifest ships in the same release as
+      # the APK. gh uploads every asset before it publishes the release, so apps never see half a release, and
+      # --latest makes sure that URL points at this one.
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          assets=("release-artifacts/app-release.apk" "release-artifacts/latest.json")
+          if [ -f release-artifacts/mapping.txt ]; then
+            assets+=("release-artifacts/mapping.txt")
+          fi
+          gh release create "v$VERSION_NAME" "${assets[@]}" \
+            --title "Portland $VERSION_NAME" --target "$GITHUB_SHA" --generate-notes --latest
+
+      # Builds from before bring-your-own-R2 can only look for updates in the old "portland" bucket. This puts each
+      # release there too, so every one of them updates itself to a current build (which then uses GitHub). It skips
+      # itself once the R2_* secrets are deleted; see the script for how to retire it.
+      - name: Legacy R2 update bridge
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
           R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
           R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
-        run: |
-          apk="release-artifacts/app-release.apk"
-          test -s "$apk"
-          key="releases/portland-$VERSION_CODE.apk"
-          put() {
-            curl -fsS --retry 3 --retry-all-errors --connect-timeout 15 --max-time 120 \
-              --aws-sigv4 "aws:amz:auto:s3" --user "$R2_ACCESS_KEY:$R2_SECRET_KEY" \
-              -H "Content-Type: $3" -T "$1" "https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com/$R2_BUCKET/$2"
-          }
-          put "$apk" "$key" application/vnd.android.package-archive
-          sha="$(sha256sum "$apk" | cut -d' ' -f1)"
-          jq -n --argjson code "$VERSION_CODE" --arg name "$VERSION_NAME" --arg apk "$key" \
-            --arg sha "$sha" --arg notes "$(git log -1 --pretty=%s)" \
-            '{versionCode: $code, versionName: $name, apk: $apk, sha256: $sha, notes: $notes}' > latest.json
-          # The pointer goes last, so installed apps only ever see a fully uploaded build.
-          put latest.json releases/latest.json application/json
-          echo "APK_SHA256=$sha" >> "$GITHUB_ENV"
-          # shortcut: old releases/portland-*.apk are kept (~4.5 MB each); prune them once the bucket nears the 10 GB free tier.
-
-      - name: GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          assets=("release-artifacts/app-release.apk")
-          if [ -f release-artifacts/mapping.txt ]; then
-            assets+=("release-artifacts/mapping.txt")
-          fi
-          gh release create "v$VERSION_NAME" "${assets[@]}" \
-            --title "Portland $VERSION_NAME" --target "$GITHUB_SHA" --generate-notes
+        run: bash .github/scripts/r2-bridge-publish.sh release-artifacts/app-release.apk "$RUNNER_TEMP/manifests/legacy-latest.json"
 
       - name: Write release summary
         run: |
@@ -336,5 +351,4 @@ jobs:
             echo "### Published Portland $VERSION_NAME"
             echo "- **versionCode:** \`$VERSION_CODE\`"
             echo "- **SHA-256:** \`$APK_SHA256\`"
-            echo "- **R2 key:** \`releases/portland-$VERSION_CODE.apk\`"
           } >> "$GITHUB_STEP_SUMMARY"

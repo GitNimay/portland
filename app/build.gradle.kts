@@ -6,14 +6,14 @@ plugins {
     alias(libs.plugins.baselineprofile)
 }
 
-// Secrets come from local.properties (git-ignored) on a dev machine, or from env vars in CI
-// (e.g. r2.accessKey <- R2_ACCESS_KEY). Missing R2/AI values = local-only mode.
+// Signing secrets come from local.properties (git-ignored) on a dev machine, or from env vars in CI
+// (e.g. release.password <- RELEASE_PASSWORD). No cloud keys are ever built in: each user connects their own
+// R2 bucket in Settings, and the keys stay encrypted on their phone.
 val local = Properties().apply {
     rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use(::load)
 }
 fun secret(key: String): String? =
     System.getenv(key.replace(Regex("([a-z])([A-Z])"), "$1_$2").replace('.', '_').uppercase()) ?: local.getProperty(key)
-fun field(key: String) = "\"${secret(key).orEmpty()}\""
 // CI passes the run number so every published build is newer than the last.
 val ciVersion = System.getenv("VERSION_CODE")?.toInt()
 
@@ -33,11 +33,6 @@ android {
         targetSdk = 36
         versionCode = ciVersion ?: 1
         versionName = "1.0.${ciVersion ?: 0}"
-        buildConfigField("String", "R2_ACCOUNT_ID", field("r2.accountId"))
-        buildConfigField("String", "R2_ACCESS_KEY", field("r2.accessKey"))
-        buildConfigField("String", "R2_SECRET_KEY", field("r2.secretKey"))
-        buildConfigField("String", "R2_BUCKET", field("r2.bucket"))
-        buildConfigField("String", "AI_TOKEN", field("ai.token"))
         // yt-dlp ships native Python and ffmpeg per ABI (~25 MB each), so release builds carry phones' ABI only.
         // Emulator testing: ./gradlew assembleRelease -Pabis=x86_64
         ndk { abiFilters += (findProperty("abis") as String? ?: "arm64-v8a").split(",") }
@@ -102,6 +97,7 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
     testImplementation(libs.junit)
     testImplementation(libs.org.json)
+    testImplementation(libs.okhttp.mockwebserver)
 }
 
 // Baseline profile: the app's own hot code (feed, viewer, glass) compiled ahead of time at install, so the first
@@ -113,13 +109,10 @@ baselineProfile {
     dexLayoutOptimization = true
 }
 
-// The profile is recorded from a separate install (app.portland.bp) with no R2 or AI credentials, so generating
-// one can never replace the real app (the test runner uninstalls its target) or touch the cloud library.
+// The profile is recorded from a separate install (app.portland.bp), so generating one can never replace the real
+// app (the test runner uninstalls its target) or touch its library. It never connects a bucket.
 androidComponents {
     onVariants(selector().withBuildType("nonMinifiedRelease")) { variant ->
         variant.applicationId.set("app.portland.bp")
-        for (key in listOf("R2_ACCOUNT_ID", "R2_ACCESS_KEY", "R2_SECRET_KEY", "R2_BUCKET", "AI_TOKEN")) {
-            variant.buildConfigFields?.put(key, com.android.build.api.variant.BuildConfigField("String", "\"\"", "profiling build: local-only"))
-        }
     }
 }

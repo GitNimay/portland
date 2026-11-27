@@ -29,7 +29,7 @@ No accounts, no tracking.
 - **Save from anywhere.** Pick from the gallery, paste a link, or share to Portland. On-device `yt-dlp` downloads images and videos (up to 1080p), including every photo and video in a multi-media X post or Pinterest pin.
 - **Search by anything.** Notes, board names, 12 colour buckets (try `blue`), or AI-written descriptions.
 - **Gallery viewer.** Filmstrip scrubbing, pinch-to-zoom, double-tap to seek videos, pull down to dismiss, pull up to share.
-- **Your own cloud.** Optional backup and restore to your own Cloudflare R2 bucket. Works fully offline without it.
+- **Your own cloud.** Keep pins on your phone, or connect your own Cloudflare R2 bucket by pasting one token: store everything there, or use it as a backup.
 - **Self-updating.** Signed releases install in the background; restart when one is ready.
 
 <div align="center">
@@ -40,6 +40,8 @@ No accounts, no tracking.
 ## Install
 
 Download the latest APK from [**Releases**](https://github.com/GitNimay/portland/releases/latest). Release builds target `arm64-v8a` phones; after the first install, updates arrive automatically.
+
+The app checks the latest GitHub release for an update (`latest.json` sits next to the APK), downloads it in the background and verifies its SHA-256 before offering a restart. Builds from before bring-your-own-R2 can only see the old `portland` R2 bucket, so CI also publishes each release there (`.github/scripts/r2-bridge-publish.sh`) until those installs have moved on.
 
 ## Build
 
@@ -52,21 +54,24 @@ Requires JDK 21 and the Android SDK.
 ```
 
 <details>
-<summary><b>Cloud sync and AI search (optional)</b></summary>
+<summary><b>Cloud storage and AI search (optional)</b></summary>
 
 <br>
 
-Add your Cloudflare credentials to `local.properties` (git-ignored). Without them Portland runs in local-only mode.
+No keys are built into the app. Each person connects their own Cloudflare R2 bucket in **Settings → Storage → Cloudflare R2**:
 
-```properties
-r2.accountId=<cloudflare account id>
-r2.bucket=portland
-r2.accessKey=<R2 access key id>
-r2.secretKey=<R2 secret access key>
-ai.token=<API token with Workers AI read/write>
-```
+1. Tap **Create token on Cloudflare**. Cloudflare opens a new account API token (owned by the account, not a person) with Portland's permissions already filled in (*Workers R2 Storage Edit*, *Account Settings Read*, *Workers AI Read*). Press **Create** and copy the token.
+2. Paste it into Portland and tap **Connect**. Portland finds the account, creates a `portland-library` bucket and checks that it can write there. The S3 keys come from the token itself: the access key ID is the token ID and the secret is the SHA-256 of the token value.
 
-One Cloudflare API token with *Workers AI Read/Write* and *R2 Bucket Item Read/Write* covers both. `r2.accessKey` is the token ID and `r2.secretKey` is the SHA-256 hash of the token value.
+R2 has to be turned on in the Cloudflare dashboard once (it has a free tier). People who already have R2 access keys can tap **Use access keys instead**.
+
+- **Keep copies on this phone** off (the default): R2 is where pins live. Each pin uploads, then its phone copy is removed and streams back when opened. Thumbnails stay on the phone.
+- **Keep copies on this phone** on: a backup. Every pin stays on the phone and a copy goes to R2.
+- **This phone**: downloads anything that is only in R2, then stops using it. The bucket is left as it is.
+
+The keys are sealed with an Android Keystore key and are never backed up. AI descriptions run on Workers AI in the same account when the token allows it.
+
+To test against a real bucket: `PORTLAND_CF_TOKEN=<token> PORTLAND_CF_ACCOUNT=<account id> ./gradlew :app:testDebugUnitTest --tests '*R2LiveTest*'`.
 
 </details>
 
@@ -74,7 +79,7 @@ One Cloudflare API token with *Workers AI Read/Write* and *R2 Bucket Item Read/W
 
 ```
 app/src/main/java/app/portland/
-├── data/    storage, R2 sync, downloads, colour index, AI captions, updater
+├── data/    storage, R2 connect and sync, downloads, colour index, AI captions, updater
 └── ui/      Compose screens, gestures, Liquid Glass surfaces, theme
 app/src/test/          JVM unit tests
 baselineprofile/       baseline profile generator (startup and scroll performance)

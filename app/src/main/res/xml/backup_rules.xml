@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Media is backed up to R2, not Google backup. -->
+<!-- Nothing goes to Google backup or a new phone: pins are on this phone or in the user's own R2 bucket, and the
+     R2 keys (portland_cloud) are sealed with a Keystore key that never leaves this device anyway. -->
 <data-extraction-rules>
-    <cloud-backup><exclude domain="file" path="."/></cloud-backup>
-    <device-transfer><exclude domain="file" path="."/></device-transfer>
+    <cloud-backup>
+        <exclude domain="file" path="."/>
+        <exclude domain="sharedpref" path="portland_cloud.xml"/>
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="."/>
+        <exclude domain="sharedpref" path="portland_cloud.xml"/>
+    </device-transfer>
 </data-extraction-rules>

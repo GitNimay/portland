@@ -37,6 +37,17 @@ export function dockShift(viewportWidth: number, dockW: number): { left: number;
 }
 
 /**
+ * Width of the glass while the nav is undocked: just outside the brand and Download at their
+ * resting places, so docking reads as one sheet of glass drawing in around the items.
+ * Mirrors the same bar geometry as `dockShift`.
+ */
+export function floatWidth(viewportWidth: number, dockW: number) {
+  const barW = Math.min(1024, viewportWidth)
+  const padX = viewportWidth >= 640 ? 24 : 16
+  return Math.max(dockW, barW - padX * 2 + 20)
+}
+
+/**
  * RGBA displacement map for a capsule `w`×`h` px. Inside a band along the rim, each pixel
  * points the backdrop sample further inward (red = x, green = y, 128 = no shift), so content
  * near the edge is magnified and bends round the curve, like light through a thick glass

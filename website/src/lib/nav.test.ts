@@ -7,6 +7,7 @@ import {
   UNDOCK_AT,
   dockShift,
   dockWidth,
+  floatWidth,
   lensDisplacement,
   nextDocked,
   supportsBackdropLens,
@@ -29,6 +30,19 @@ describe('nextDocked', () => {
     const y = (DOCK_AT + UNDOCK_AT) / 2
     expect(nextDocked(false, y)).toBe(false)
     expect(nextDocked(true, y)).toBe(true)
+  })
+})
+
+describe('floatWidth', () => {
+  it('spans the wide bar, just outside the brand and Download', () => {
+    // 1024px bar, 24px padding, 10px of glass past each item.
+    expect(floatWidth(1440, DOCK_W)).toBe(1024 - 48 + 20)
+    expect(floatWidth(900, DOCK_W)).toBe(900 - 48 + 20)
+  })
+
+  it('never starts narrower than the docked pill', () => {
+    expect(floatWidth(390, dockWidth(390))).toBe(390 - 32 + 20)
+    expect(floatWidth(300, 600)).toBe(600)
   })
 })
 

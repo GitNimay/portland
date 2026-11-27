@@ -7,6 +7,7 @@ import {
   LENS_SCALE,
   dockShift,
   dockWidth,
+  floatWidth,
   lensMapUrl,
   nextDocked,
   supportsBackdropLens,
@@ -14,7 +15,9 @@ import {
 
 /**
  * Sticky nav. At the top of the page it is the plain, wide row over the sky. Once you scroll,
- * its items draw together and a liquid-glass pill forms around them.
+ * its items draw together and a sheet of liquid glass condenses around them into a pill; its
+ * edges travel with the brand and Download, on the same curve. Hovering a link slides one soft
+ * highlight between the links instead of flashing each one.
  *
  * The glass follows the app's `Modifier.glass` (Theme.kt): the backdrop is saturated and
  * slightly brightened, bent by a lens at the rim, under a light film with a specular edge
@@ -32,16 +35,20 @@ export function Nav({ tone = 'sky', pathname = '/' }: { tone?: 'sky' | 'paper'; 
   const docked = useDocked()
   const dispRef = useRef<SVGFEDisplacementMapElement | null>(null)
   const lens = useLens(docked, dispRef)
+  const settled = useSettled(docked)
+  const hover = useHoverHighlight()
 
   return (
     <header className="pointer-events-none fixed inset-x-0 top-0 z-50 pt-[env(safe-area-inset-top)]">
       <LensFilter lens={lens} dispRef={dispRef} />
       <div
         data-docked={docked || undefined}
+        data-settled={settled || undefined}
         className="nav-shell mx-auto"
         style={
           {
             '--dock-w': `${lens.width}px`,
+            '--float-w': `${lens.floatWidth}px`,
             '--dock-h': `${DOCK_H}px`,
             '--dock-shift-left': `${lens.shift.left}px`,
             '--dock-shift-right': `${lens.shift.right}px`,
@@ -51,7 +58,7 @@ export function Nav({ tone = 'sky', pathname = '/' }: { tone?: 'sky' | 'paper'; 
         <nav
           aria-label="Primary"
           data-tone={tone === 'paper' ? 'paper' : undefined}
-          className="nav-bar pointer-events-auto relative isolate mx-auto flex items-center justify-between"
+          className="nav-bar nav-enter pointer-events-auto relative isolate mx-auto flex items-center justify-between"
         >
           <span aria-hidden data-lens={lens.supported || undefined} className="nav-glass absolute -z-10 rounded-full" />
           <a
@@ -71,7 +78,12 @@ export function Nav({ tone = 'sky', pathname = '/' }: { tone?: 'sky' | 'paper'; 
             </span>
             <span className="nav-brand-name">Portland</span>
           </a>
-          <ul className="nav-links flex items-center text-small">
+          <ul
+            onPointerOver={hover.onOver}
+            onPointerLeave={hover.onLeave}
+            className="nav-links relative flex items-center text-small"
+          >
+            <li aria-hidden className="nav-hl" />
             {LINKS.map((link) => {
               const href = link.label === 'Features' && pathname === '/' ? '#features' : link.href
               const current = href === pathname
@@ -104,6 +116,41 @@ export function Nav({ tone = 'sky', pathname = '/' }: { tone?: 'sky' | 'paper'; 
   )
 }
 
+/** True once the pill has finished forming, so effects sized to the final pill can switch on. */
+function useSettled(docked: boolean) {
+  const [settled, setSettled] = useState(false)
+  useEffect(() => {
+    if (!docked) return
+    const timer = window.setTimeout(() => setSettled(true), SETTLE_MS)
+    return () => {
+      clearTimeout(timer)
+      setSettled(false)
+    }
+  }, [docked])
+  return settled
+}
+
+/**
+ * One highlight that glides to whichever link the pointer is on. It appears in place on the
+ * first link you reach, then slides between links, and fades out when the pointer leaves.
+ */
+function useHoverHighlight() {
+  const onOver = (e: React.PointerEvent<HTMLUListElement>) => {
+    const list = e.currentTarget
+    const link = (e.target as Element).closest('a')
+    if (!link || e.pointerType !== 'mouse') return
+    const fresh = !list.hasAttribute('data-hl')
+    if (fresh) list.setAttribute('data-hl-jump', '')
+    // The list is the links' offset parent (it is positioned), so offsetLeft is list-relative.
+    list.style.setProperty('--hl-x', `${link.offsetLeft}px`)
+    list.style.setProperty('--hl-w', `${link.offsetWidth}px`)
+    list.setAttribute('data-hl', '')
+    if (fresh) requestAnimationFrame(() => list.removeAttribute('data-hl-jump'))
+  }
+  const onLeave = (e: React.PointerEvent<HTMLUListElement>) => e.currentTarget.removeAttribute('data-hl')
+  return { onOver, onLeave }
+}
+
 /** Docked once the page has scrolled past DOCK_AT, until it comes back above UNDOCK_AT. */
 function useDocked() {
   const [docked, setDocked] = useState(false)
@@ -127,7 +174,13 @@ function useDocked() {
   return docked
 }
 
-type Lens = { supported: boolean; width: number; map: string; shift: { left: number; right: number } }
+type Lens = {
+  supported: boolean
+  width: number
+  floatWidth: number
+  map: string
+  shift: { left: number; right: number }
+}
 
 /** The pill's transition duration (styles.css), after which the lens map fits it exactly. */
 const SETTLE_MS = 560
@@ -140,6 +193,7 @@ function useLens(docked: boolean, dispRef: RefObject<SVGFEDisplacementMapElement
   const [lens, setLens] = useState<Lens>({
     supported: false,
     width: DOCK_W,
+    floatWidth: DOCK_W,
     map: '',
     shift: { left: 0, right: 0 },
   })
@@ -160,6 +214,7 @@ function useLens(docked: boolean, dispRef: RefObject<SVGFEDisplacementMapElement
       setLens((l) => ({
         supported,
         width,
+        floatWidth: floatWidth(vw, width),
         shift,
         map: widthChanged ? (supported ? lensMapUrl(width, DOCK_H) : '') : l.map,
       }))

@@ -1,4 +1,28 @@
+# Portland — public landing site.
+# Search engines and AI search / answer agents may fetch and use these pages.
+
 User-agent: *
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
 Allow: /
 
-Sitemap: https://portland.n1m35h.in/sitemap.xml
+User-agent: Googlebot
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
+Allow: /
+
+User-agent: OAI-SearchBot
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
+Allow: /
+
+User-agent: ChatGPT-User
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
+Allow: /
+
+User-agent: Claude-SearchBot
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
+Allow: /
+
+User-agent: PerplexityBot
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
+Allow: /
+
+Sitemap: https://www.portland.n1m35h.in/sitemap.xml

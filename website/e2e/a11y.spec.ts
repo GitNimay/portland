@@ -33,6 +33,18 @@ async function audit(page: Page, exclude: string[] = []) {
 }
 
 test.describe('accessibility', { tag: '@a11y' }, () => {
+  test('the privacy page has no WCAG 2.2 AA violations', async ({ page }) => {
+    await page.goto('/privacy')
+    await page.locator('html[data-hydrated]').waitFor({ state: 'attached' })
+    await audit(page)
+  })
+
+  test('the TNC page has no WCAG 2.2 AA violations', async ({ page }) => {
+    await page.goto('/tnc')
+    await page.locator('html[data-hydrated]').waitFor({ state: 'attached' })
+    await audit(page)
+  })
+
   test('the landing page at the top has no WCAG 2.2 AA violations', async ({ page }) => {
     await open(page)
     await audit(page)

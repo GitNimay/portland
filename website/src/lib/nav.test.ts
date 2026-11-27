@@ -84,7 +84,7 @@ describe('lensDisplacement', () => {
 
 describe('dockShift', () => {
   it('computes inward travel for desktop and mobile viewports without going negative', () => {
-    expect(dockShift(1440, DOCK_W)).toEqual({ left: 278, right: 276 })
+    expect(dockShift(1440, DOCK_W)).toEqual({ left: 218, right: 216 })
     expect(dockShift(390, dockWidth(390))).toEqual({ left: 6, right: 4 })
     expect(dockShift(320, 320)).toEqual({ left: 0, right: 0 })
   })

@@ -1,0 +1,18 @@
+# Portland
+
+> A self-hosted, on-device Pinterest alternative for Android. Save images and videos into boards on your phone, or sync them to a Cloudflare R2 bucket you control. No accounts and no tracking.
+
+Portland is open-source (MIT) software. The Android app stores the library on the device by default. Optional sync uses a Cloudflare R2 bucket the person brings. Optional image descriptions run on Cloudflare Workers AI in that same account. This website is a static landing page. It does not collect accounts, run analytics, or set tracking cookies.
+
+## Pages
+
+- [Home](https://www.portland.n1m35h.in/): Product overview, features and download
+- [Privacy Policy](https://www.portland.n1m35h.in/privacy): What stays on the device, what an optional R2 bucket does, and what this website does not collect
+- [TNC](https://www.portland.n1m35h.in/tnc): MIT license, your own bucket, and no warranty
+
+## Project
+
+- [GitHub](https://github.com/GitNimay/portland): Source code
+- [Releases](https://github.com/GitNimay/portland/releases/latest): Latest Android APK
+- [Security policy](https://github.com/GitNimay/portland/blob/main/.github/SECURITY.md): How to report a vulnerability
+- [License](https://github.com/GitNimay/portland/blob/main/LICENSE): MIT

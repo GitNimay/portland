@@ -7,6 +7,7 @@ type Meta = { title?: string; name?: string; property?: string; content?: string
 type Link = { rel: string; href: string }
 
 const head = () => RootRoute.options.head!({} as never) as { meta: Meta[]; links: Link[] }
+const homeHead = () => IndexRoute.options.head!({} as never) as { meta: Meta[]; links: Link[] }
 const meta = (key: string) => head().meta.find((m) => m.name === key || m.property === key)?.content
 
 describe('document head', () => {
@@ -30,17 +31,21 @@ describe('document head', () => {
     expect(meta('og:type')).toBe('website')
     expect(meta('twitter:card')).toBe('summary_large_image')
     // Crawlers ignore relative image URLs, and og:url must match the canonical link.
-    expect(meta('og:image')).toBe('https://portland.n1m35h.in/og.jpg')
-    expect(meta('og:url')).toBe(head().links.find((l) => l.rel === 'canonical')?.href)
+    expect(meta('og:image')).toBe('https://www.portland.n1m35h.in/og.jpg')
+    expect(meta('og:url')).toBe('https://www.portland.n1m35h.in/')
+    expect(homeHead().links.find((l) => l.rel === 'canonical')?.href).toBe(meta('og:url'))
   })
 
-  it('links the stylesheet and icons, and preloads the hero screenshot', () => {
+  it('links the stylesheet and icons, and preloads the hero screenshot from the home route', () => {
     const rels = head().links.map((l) => `${l.rel} ${l.href}`)
     expect(rels.some((r) => r.startsWith('stylesheet '))).toBe(true)
     expect(rels).toContain('icon /favicon.ico')
     expect(rels).toContain('apple-touch-icon /apple-touch-icon.png')
     expect(rels).toContain('manifest /site.webmanifest')
-    expect(rels).toContain('preload /feed.webp')
+    expect(rels).toContain('alternate /llms.txt')
+    const homeLinks = homeHead().links.map((l) => `${l.rel} ${l.href}`)
+    expect(homeLinks).toContain('canonical https://www.portland.n1m35h.in/')
+    expect(homeLinks).toContain('preload /feed.webp')
   })
 })
 

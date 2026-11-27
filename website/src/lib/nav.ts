@@ -1,5 +1,8 @@
-/** Docked pill: width on wide screens, and its height. Narrow screens use the viewport minus a gutter. */
-export const DOCK_W = 440
+/**
+ * Docked pill: width on wide screens, and its height. Narrow screens use the viewport minus a gutter.
+ * Wide enough for the brand, Download, and the text links (Features, GitHub, Privacy, TNC).
+ */
+export const DOCK_W = 560
 export const DOCK_H = 52
 export const GUTTER = 12
 

@@ -1,0 +1,5 @@
+Contact: https://github.com/GitNimay/portland/security/advisories/new
+Expires: 2027-11-27T23:59:59.000Z
+Preferred-Languages: en
+Canonical: https://www.portland.n1m35h.in/.well-known/security.txt
+Policy: https://github.com/GitNimay/portland/blob/main/.github/SECURITY.md

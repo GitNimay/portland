@@ -180,6 +180,11 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ matrix.browser }}-${{ hashFiles('website/package-lock.json') }}
 
+      # The runner image ships a packages.microsoft.com apt source that Playwright never needs; when that
+      # mirror is down (403), apt-get update fails and takes the browser dependencies with it.
+      - name: Drop unneeded apt sources
+        run: grep -rl packages.microsoft.com /etc/apt/sources.list.d | xargs -r sudo rm -f
+
       - name: Install browser
         if: steps.pw-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps ${{ matrix.browser }}
@@ -223,6 +228,11 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-chromium-${{ hashFiles('website/package-lock.json') }}
+
+      # The runner image ships a packages.microsoft.com apt source that Playwright never needs; when that
+      # mirror is down (403), apt-get update fails and takes the browser dependencies with it.
+      - name: Drop unneeded apt sources
+        run: grep -rl packages.microsoft.com /etc/apt/sources.list.d | xargs -r sudo rm -f
 
       - name: Install browser
         if: steps.pw-cache.outputs.cache-hit != 'true'

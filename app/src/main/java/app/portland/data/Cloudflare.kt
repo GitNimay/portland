@@ -20,19 +20,24 @@ import java.net.URLEncoder
  */
 const val DEFAULT_BUCKET = "portland-library"
 
+/** Workers AI Read. Short keys have none for it (a guessed "workers_ai" is silently dropped), so it goes by ID. */
+private const val WORKERS_AI_READ = "a92d2450e05d4e7bb7d0a64968f83d11"
+
 /**
- * Opens Cloudflare's "Create API token" page with Portland's permissions already filled in, so the user only
- * presses Create and copies the token: R2 (make the bucket, read and write it), account settings read (lets the
- * app find the account by itself) and Workers AI read (pin descriptions). Keys the dashboard does not know are
- * dropped silently, so a renamed one costs a feature, never the token.
+ * Opens Cloudflare's "Create API token" page for an account-owned token (what Cloudflare recommends for apps: it
+ * belongs to the account, not to a person) with Portland's permissions already filled in, so the user only presses
+ * Create and copies it: R2 (make the bucket, read and write it), account settings read (lets the app find the account
+ * by itself) and Workers AI read (pin descriptions). Only account-owned templates accept permission group IDs, which
+ * Workers AI needs. Entries the dashboard does not know are dropped silently, so a renamed one costs a feature, never
+ * the token; the app checks what the token can really do when it connects.
  */
 val TOKEN_TEMPLATE_URL: String = run {
     val permissions = JSONArray()
         .put(JSONObject().put("key", "workers_r2").put("type", "edit"))
         .put(JSONObject().put("key", "account_settings").put("type", "read"))
-        .put(JSONObject().put("key", "workers_ai").put("type", "read"))
-    "https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=" + URLEncoder.encode(permissions.toString(), "UTF-8") +
-        "&accountId=*&zoneId=all&name=Portland"
+        .put(JSONObject().put("key", WORKERS_AI_READ).put("type", "read"))
+    "https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=" +
+        URLEncoder.encode(permissions.toString(), "UTF-8") + "&name=Portland"
 }
 
 /** Where a user turns R2 on (a one-time free-tier signup Cloudflare requires before the first bucket). */

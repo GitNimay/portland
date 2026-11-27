@@ -72,6 +72,17 @@ class R2SetupTest {
     }
 
     @Test
+    fun `a token from the app's link connects with no questions asked`() = runBlocking {
+        // What the account-token link makes (checked live): not a user token, sees its one account, may use AI.
+        val t = token { copy(user = false) }
+        val config = connected(setup.withToken(t.value))
+        assertEquals(FakeCloudflare.ACCOUNT, config.accountId)
+        assertEquals(t.id, config.accessKeyId)
+        assertTrue(config.captions)
+        assertEquals(setOf(DEFAULT_BUCKET), cf.buckets)
+    }
+
+    @Test
     fun `a wrong token is reported as such`() = runBlocking {
         token()
         assertEquals(SetupResult.Failed(SetupProblem.BadToken), setup.withToken("not-a-real-token"))

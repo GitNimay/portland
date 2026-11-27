@@ -60,7 +60,7 @@ Requires JDK 21 and the Android SDK.
 
 No keys are built into the app. Each person connects their own Cloudflare R2 bucket in **Settings → Storage → Cloudflare R2**:
 
-1. Tap **Create token on Cloudflare**. The token page opens with Portland's permissions already filled in (*Workers R2 Storage Edit*, *Account Settings Read*, *Workers AI Read*). Press **Create** and copy the token.
+1. Tap **Create token on Cloudflare**. Cloudflare opens a new account API token (owned by the account, not a person) with Portland's permissions already filled in (*Workers R2 Storage Edit*, *Account Settings Read*, *Workers AI Read*). Press **Create** and copy the token.
 2. Paste it into Portland and tap **Connect**. Portland finds the account, creates a `portland-library` bucket and checks that it can write there. The S3 keys come from the token itself: the access key ID is the token ID and the secret is the SHA-256 of the token value.
 
 R2 has to be turned on in the Cloudflare dashboard once (it has a free tier). People who already have R2 access keys can tap **Use access keys instead**.

@@ -57,16 +57,18 @@ class CloudPolicyTest {
     }
 
     @Test
-    fun `the token link pre-fills R2, account and Workers AI permissions`() {
+    fun `the token link pre-fills an account token with R2, account and Workers AI permissions`() {
         val uri = URI(TOKEN_TEMPLATE_URL)
         assertEquals("dash.cloudflare.com", uri.host)
-        assertEquals("/profile/api-tokens", uri.path)
+        assertEquals("/", uri.path)
         val params = uri.rawQuery.split('&').associate { it.substringBefore('=') to URLDecoder.decode(it.substringAfter('='), "UTF-8") }
+        assertEquals("/:account/api-tokens", params["to"])
         val permissions = JSONArray(params.getValue("permissionGroupKeys"))
         val pairs = (0 until permissions.length()).map { permissions.getJSONObject(it).let { p -> p.getString("key") to p.getString("type") } }
-        assertEquals(listOf("workers_r2" to "edit", "account_settings" to "read", "workers_ai" to "read"), pairs)
-        assertEquals("*", params["accountId"])
-        assertEquals("all", params["zoneId"])
+        assertEquals(
+            listOf("workers_r2" to "edit", "account_settings" to "read", "a92d2450e05d4e7bb7d0a64968f83d11" to "read"),
+            pairs,
+        )
         assertEquals("Portland", params["name"])
     }
 }

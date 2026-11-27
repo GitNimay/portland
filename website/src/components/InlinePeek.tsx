@@ -90,7 +90,10 @@ function Trigger({ kind }: { kind: PeekKind }) {
     <img
       src={kind === 'saved' ? '/hero/obj-photos.png' : '/hero/obj-bucket.png'}
       alt=""
+      width={kind === 'saved' ? 128 : 336}
+      height={kind === 'saved' ? 116 : 352}
       loading="lazy"
+      decoding="async"
       className="size-full object-contain drop-shadow-[0_0.06em_0.08em_rgb(15_40_80/0.18)]"
     />
   )

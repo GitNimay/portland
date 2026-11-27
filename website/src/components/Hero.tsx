@@ -28,9 +28,12 @@ export function Hero() {
             <span className="block">
               Keep it{' '}
               <img
-                src="/hero/obj-pin.png"
+                src="/hero/obj-pin.webp"
                 alt=""
                 aria-hidden
+                width={160}
+                height={173}
+                decoding="async"
                 className="inline-block size-[1.1em] -translate-y-[0.06em] object-contain align-middle"
               />{' '}
               yours.
@@ -67,8 +70,14 @@ function Sky() {
     <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
       <img
         src="/hero/sky.webp"
+        srcSet="/hero/sky-sm.webp 1280w, /hero/sky.webp 2560w"
+        sizes="100vw"
         alt=""
-        className="px-sky absolute inset-x-0 top-0 h-[78%] w-full [mask-image:linear-gradient(180deg,#000_55%,transparent)] object-cover object-top opacity-90"
+        width={2560}
+        height={1440}
+        fetchPriority="high"
+        decoding="async"
+        className="px-sky absolute inset-x-0 top-0 h-[78%] w-full object-cover object-top"
       />
       {/* Keeps the headline legible over any sky photo. */}
       <div className="absolute inset-x-0 top-0 h-[42%] bg-[linear-gradient(180deg,rgb(20_100_190/0.45),transparent)]" />
@@ -117,14 +126,14 @@ const chipRight = 'animate-rise -right-12 sm:right-auto sm:left-[calc(100%-2.5re
  *   front – the big centre cloud the phone sinks into, with fog under it
  *   near  – low clouds along the seam, with the white floor under them
  */
-const CLOUD = '/hero/cloud-a.png'
+const CLOUD = '/hero/cloud-a.webp'
 const fog = 'bg-[linear-gradient(180deg,rgb(255_255_255/0)_0%,rgb(255_255_255/0.8)_14%,#fff_24%)]'
 
 function BottomClouds() {
   return (
     <div
       aria-hidden
-      className="pointer-events-none absolute inset-x-0 -bottom-[18rem] z-20 h-[38rem] overflow-x-clip sm:h-[44rem]"
+      className="pointer-events-none absolute inset-x-0 -bottom-[18rem] z-20 h-[38rem] overflow-x-clip contain-layout sm:h-[44rem]"
     >
       <div className="px-cloud-far absolute inset-0 opacity-75">
         <Cloud className="bottom-[25rem] -left-[20%] w-[80%] sm:bottom-[31rem] sm:left-[3%] sm:w-[28%]" />
@@ -150,15 +159,16 @@ function BottomClouds() {
   )
 }
 
-/** A cloud with its flat underside faded out, so it always dissolves into what is below. */
+/** A cloud with its flat underside pre-faded into the image alpha, so it dissolves without runtime masks. */
 function Cloud({ className }: { className: string }) {
   return (
     <img
       src={CLOUD}
       alt=""
-      width={1400}
-      height={504}
-      className={cn('absolute max-w-none [mask-image:linear-gradient(180deg,#000_70%,transparent_86%)]', className)}
+      width={1120}
+      height={403}
+      decoding="async"
+      className={cn('absolute max-w-none', className)}
     />
   )
 }

@@ -31,18 +31,19 @@ export function Footer() {
   return (
     <footer
       ref={ref}
-      className="relative isolate overflow-hidden bg-[linear-gradient(180deg,#ffffff_0%,#ffffff_26%,#e4f3fd_40%,#a9d8f8_58%,#5db6f3_82%,#3a9be6_100%)]"
+      className="ft-scope relative isolate overflow-hidden bg-[linear-gradient(180deg,#ffffff_0%,#ffffff_26%,#e4f3fd_40%,#a9d8f8_58%,#5db6f3_82%,#3a9be6_100%)]"
     >
       <div className="mx-auto flex max-w-5xl flex-col gap-12 px-4 pt-8 sm:flex-row sm:justify-between sm:px-6 sm:pt-10">
         <div className="max-w-xs">
           <a href="/" className="inline-flex items-center gap-2 rounded-full text-body font-medium text-ink">
             <span className="grid size-7 place-items-center overflow-hidden rounded-full bg-paper shadow-[0_0_0_1px_rgb(15_40_80/0.08),0_1px_2px_rgb(15_40_80/0.08)]">
               <img
-                src="/mark.png"
+                src="/mark.webp"
                 alt=""
-                width={432}
-                height={432}
+                width={144}
+                height={144}
                 loading="lazy"
+                decoding="async"
                 className="size-full scale-[1.55] object-contain"
               />
             </span>
@@ -109,35 +110,39 @@ export function Footer() {
         */}
         <div className="ft-cloud absolute inset-x-0 bottom-0 h-full">
           <img
-            src="/hero/cloud-a.png"
+            src="/hero/cloud-a.webp"
             alt=""
-            width={1400}
-            height={505}
+            width={1120}
+            height={403}
             loading="lazy"
+            decoding="async"
             className="absolute -bottom-[2%] -left-[22%] w-[72%] max-w-none sm:-bottom-[22%] sm:-left-[14%] sm:w-[54%]"
           />
           <img
-            src="/hero/cloud-a.png"
+            src="/hero/cloud-a.webp"
             alt=""
-            width={1400}
-            height={505}
+            width={1120}
+            height={403}
             loading="lazy"
+            decoding="async"
             className="absolute -right-[22%] -bottom-[4%] w-[72%] max-w-none -scale-x-100 sm:-right-[14%] sm:-bottom-[24%] sm:w-[54%]"
           />
           <img
-            src="/hero/cloud-a.png"
+            src="/hero/cloud-a.webp"
             alt=""
-            width={1400}
-            height={505}
+            width={1120}
+            height={403}
             loading="lazy"
+            decoding="async"
             className="absolute -bottom-[8%] left-[8%] w-[62%] max-w-none -scale-x-100 sm:-bottom-[30%] sm:left-[16%] sm:w-[46%]"
           />
           <img
-            src="/hero/cloud-a.png"
+            src="/hero/cloud-a.webp"
             alt=""
-            width={1400}
-            height={505}
+            width={1120}
+            height={403}
             loading="lazy"
+            decoding="async"
             className="absolute -bottom-[14%] left-1/2 w-full max-w-none -translate-x-1/2 sm:-bottom-[38%] sm:w-[72%]"
           />
           <div className="absolute inset-x-0 -bottom-px h-[22%] bg-[linear-gradient(180deg,transparent,rgb(255_255_255/0.9)_60%,#ffffff)]" />

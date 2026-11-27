@@ -1,5 +1,16 @@
-import { describe, expect, it } from 'vitest'
-import { DOCK_AT, DOCK_H, DOCK_W, GUTTER, UNDOCK_AT, dockWidth, lensDisplacement, nextDocked } from './nav'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  DOCK_AT,
+  DOCK_H,
+  DOCK_W,
+  GUTTER,
+  UNDOCK_AT,
+  dockShift,
+  dockWidth,
+  lensDisplacement,
+  nextDocked,
+  supportsBackdropLens,
+} from './nav'
 
 describe('nextDocked', () => {
   it('stays undocked until the page scrolls past the dock threshold', () => {
@@ -68,5 +79,62 @@ describe('lensDisplacement', () => {
     const b = at(w - 4, h - 6)
     expect(Math.abs(a.r + b.r - 256)).toBeLessThanOrEqual(2)
     expect(Math.abs(a.g + b.g - 256)).toBeLessThanOrEqual(2)
+  })
+})
+
+describe('dockShift', () => {
+  it('computes inward travel for desktop and mobile viewports without going negative', () => {
+    expect(dockShift(1440, DOCK_W)).toEqual({ left: 278, right: 276 })
+    expect(dockShift(390, dockWidth(390))).toEqual({ left: 6, right: 4 })
+    expect(dockShift(320, 320)).toEqual({ left: 0, right: 0 })
+  })
+})
+
+describe('supportsBackdropLens', () => {
+  const uaDescriptor = Object.getOwnPropertyDescriptor(navigator, 'userAgentData')
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    if (uaDescriptor) {
+      Object.defineProperty(navigator, 'userAgentData', uaDescriptor)
+    } else {
+      delete (navigator as { userAgentData?: unknown }).userAgentData
+    }
+  })
+
+  function mockEnvironment({ reducedTransparency = false, finePointer = true, chromium = true } = {}) {
+    vi.spyOn(window, 'matchMedia').mockImplementation(
+      (query: string) =>
+        ({
+          matches:
+            (reducedTransparency && query.includes('prefers-reduced-transparency')) ||
+            (finePointer && query.includes('pointer: fine')),
+          media: query,
+          onchange: null,
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          dispatchEvent: vi.fn(() => false),
+        }) as MediaQueryList,
+    )
+    Object.defineProperty(navigator, 'userAgentData', {
+      configurable: true,
+      value: chromium ? { brands: [{ brand: 'Chromium' }] } : { brands: [{ brand: 'Firefox' }] },
+    })
+  }
+
+  it('enables the lens only on desktop fine-pointer Chromium without reduced transparency', () => {
+    mockEnvironment({ finePointer: true, chromium: true })
+    expect(supportsBackdropLens()).toBe(true)
+
+    mockEnvironment({ finePointer: false, chromium: true })
+    expect(supportsBackdropLens()).toBe(false)
+
+    mockEnvironment({ reducedTransparency: true, finePointer: true, chromium: true })
+    expect(supportsBackdropLens()).toBe(false)
+
+    mockEnvironment({ finePointer: true, chromium: false })
+    expect(supportsBackdropLens()).toBe(false)
   })
 })

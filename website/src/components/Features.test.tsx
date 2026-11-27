@@ -29,6 +29,9 @@ describe('Features', () => {
     const titles = screen.getAllByRole('heading', { level: 3 })
     expect(titles.map((h) => h.textContent)).toEqual(cards)
     for (const title of titles) expect(title.nextElementSibling?.textContent?.length).toBeGreaterThan(20)
+    const bucketCard = screen.getByRole('heading', { level: 3, name: 'Your bucket, your backups' })
+    expect(bucketCard.nextElementSibling).toHaveTextContent(/phone/i)
+    expect(bucketCard.nextElementSibling).toHaveTextContent(/R2 bucket/i)
   })
 
   it('has no scroll-driven motion hooks on the section', () => {

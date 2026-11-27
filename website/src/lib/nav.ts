@@ -21,6 +21,19 @@ export function dockWidth(width: number) {
 }
 
 /**
+ * Horizontal inward travel (px) for the brand and CTA when the nav docks into its pill.
+ * Mirrors `.nav-bar` (`max-w-5xl` = 1024px, `px-4 sm:px-6` = 16px / 24px) and docked padding (10px / 8px).
+ */
+export function dockShift(viewportWidth: number, dockW: number): { left: number; right: number } {
+  const barW = Math.min(1024, viewportWidth)
+  const padX = viewportWidth >= 640 ? 24 : 16
+  return {
+    left: Math.max(0, (barW - dockW) / 2 + 10 - padX),
+    right: Math.max(0, (barW - dockW) / 2 + 8 - padX),
+  }
+}
+
+/**
  * RGBA displacement map for a capsule `w`×`h` px. Inside a band along the rim, each pixel
  * points the backdrop sample further inward (red = x, green = y, 128 = no shift), so content
  * near the edge is magnified and bends round the curve, like light through a thick glass
@@ -67,9 +80,10 @@ export function lensMapUrl(w: number, h: number) {
   return canvas.toDataURL()
 }
 
-/** Chromium is the only engine that runs SVG filters on a backdrop. */
+/** Desktop Chromium is the only engine that runs SVG backdrop refraction without mobile scroll jank. */
 export function supportsBackdropLens() {
   if (matchMedia('(prefers-reduced-transparency: reduce)').matches) return false
+  if (!matchMedia('(hover: hover) and (pointer: fine)').matches) return false
   const brands = (navigator as Navigator & { userAgentData?: { brands: { brand: string }[] } }).userAgentData?.brands
   return !!brands?.some((b) => b.brand === 'Chromium')
 }

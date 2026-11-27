@@ -48,6 +48,13 @@
   html {
     color-scheme: light;
     -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
   }
 
   body {
@@ -133,17 +140,11 @@
   }
 
   /*
-   * Sticky nav (Nav.tsx). Wide, plain row at the top of the page; docked, the row draws in
-   * to the pill's width and the glass fades up around it. One curve for every part, so the
-   * items, the pill and the colours all arrive together.
+   * Sticky nav (Nav.tsx). Wide, plain row at the top of the page; docked, the items translate
+   * inward to the pill's width and the glass fades up around them without triggering layout reflow.
    */
   .nav-shell {
     --nav-ease: cubic-bezier(0.32, 0.72, 0, 1);
-    padding: 0;
-    transition: padding 560ms var(--nav-ease);
-  }
-  .nav-shell[data-docked] {
-    padding: 10px 12px 0;
   }
 
   .nav-bar {
@@ -151,11 +152,7 @@
     height: 4.5rem;
     padding-inline: 1rem;
     color: var(--color-paper);
-    transition:
-      max-width 560ms var(--nav-ease),
-      height 560ms var(--nav-ease),
-      padding 560ms var(--nav-ease),
-      color 320ms ease-out;
+    transition: color 320ms ease-out;
   }
   @media (width >= 40rem) {
     .nav-bar {
@@ -163,10 +160,14 @@
     }
   }
   [data-docked] > .nav-bar {
-    max-width: var(--dock-w);
-    height: var(--dock-h);
-    padding-inline: 10px 8px;
     color: var(--color-ink);
+  }
+
+  .nav-brand {
+    transition: transform 560ms var(--nav-ease);
+  }
+  [data-docked] .nav-brand {
+    transform: translate3d(var(--dock-shift-left, 0px), 0, 0);
   }
 
   .nav-link {
@@ -197,30 +198,39 @@
       color 320ms ease-out,
       background-color 320ms ease-out,
       box-shadow 320ms ease-out,
-      transform 150ms ease-out;
+      transform 560ms var(--nav-ease),
+      scale 150ms ease-out;
   }
   .nav-cta:hover {
     background-color: rgb(255 255 255 / 0.78);
   }
   [data-docked] .nav-cta {
+    transform: translate3d(calc(var(--dock-shift-right, 0px) * -1), 0, 0);
     color: var(--color-paper);
     background-color: var(--color-ink);
     box-shadow:
       inset 0 0 0 1px transparent,
       inset 0 1px 0 rgb(255 255 255 / 0.14),
       0 1px 2px rgb(11 18 32 / 0.2);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
   [data-docked] .nav-cta:hover {
     background-color: rgb(11 18 32 / 0.85);
   }
 
   /*
-   * The pill: Modifier.glass from the app, in CSS. Saturated, slightly brightened backdrop,
-   * a light frost so words stay legible over any section, a thin film, a specular rim lit
-   * top-left and bottom-right, and a soft float shadow. [data-lens] adds the rim refraction.
+   * The pill: Modifier.glass from the app, in CSS. Fixed at its docked dimensions and centred
+   * vertically (10px + 52px/2 = 36px, matching the 72px bar) so docking animates opacity and
+   * transform only. Backdrop filtering activates only while docked.
    */
   .nav-glass {
+    top: 10px;
+    left: 50%;
+    width: var(--dock-w);
+    height: var(--dock-h);
     opacity: 0;
+    transform: translate3d(-50%, 0, 0) scale(0.97);
     background-color: rgb(252 252 250 / 0.42);
     background-image: linear-gradient(180deg, rgb(255 255 255 / 0.34), rgb(255 255 255 / 0.06));
     box-shadow:
@@ -230,11 +240,20 @@
       0 0 0 0.5px rgb(15 40 80 / 0.08),
       0 2px 6px -2px rgb(15 40 80 / 0.1),
       0 14px 32px -14px rgb(24 86 160 / 0.32);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    transition:
+      opacity 420ms ease-out,
+      transform 560ms var(--nav-ease);
+  }
+  [data-docked] .nav-glass {
+    opacity: 1;
+    transform: translate3d(-50%, 0, 0) scale(1);
     -webkit-backdrop-filter: blur(10px) saturate(160%) brightness(1.06);
     backdrop-filter: blur(10px) saturate(160%) brightness(1.06);
-    transition: opacity 420ms ease-out;
+    transition-delay: 80ms, 0ms;
   }
-  .nav-glass[data-lens] {
+  [data-docked] .nav-glass[data-lens] {
     backdrop-filter: url(#nav-lens) blur(5px) saturate(160%) brightness(1.06);
   }
   .nav-glass::before {
@@ -260,22 +279,19 @@
     mask-composite: exclude;
     pointer-events: none;
   }
-  [data-docked] .nav-glass {
-    opacity: 1;
-    transition-delay: 80ms;
-  }
 
   @media (prefers-reduced-motion: reduce) {
-    .nav-shell,
+    .nav-brand,
     .nav-bar,
+    .nav-cta,
     .nav-glass {
       transition-duration: 0ms;
     }
   }
 
   @media (prefers-reduced-transparency: reduce) {
-    .nav-glass,
-    .nav-glass[data-lens] {
+    [data-docked] .nav-glass,
+    [data-docked] .nav-glass[data-lens] {
       background: rgb(250 250 248);
       -webkit-backdrop-filter: none;
       backdrop-filter: none;
@@ -290,8 +306,49 @@
     backdrop-filter: none;
   }
 
-  @media (prefers-reduced-transparency: reduce) {
+  /*
+   * On touch / coarse-pointer devices (Android, iOS), moving `.px-phone` chips with live
+   * `backdrop-filter` over a moving sky layer forces 3 GPU framebuffer readbacks per frame,
+   * and `mask-composite: exclude` + 7-layer shadows add heavy offscreen pass overhead.
+   * Use the same crisp frosted fill as `#features` and lightweight borders/shadows.
+   */
+  @media (pointer: coarse) {
     .glass-card {
+      border: 1px solid rgb(255 255 255 / 0.75);
+      box-shadow:
+        inset 0 1px 0 rgb(255 255 255 / 0.95),
+        0 0 0 0.5px rgb(15 40 80 / 0.08),
+        0 10px 22px -8px rgb(24 86 160 / 0.22);
+    }
+
+    .px-phone .glass-card {
+      background-color: rgb(255 255 255 / 0.78);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+
+    .glass-card::before,
+    .nav-glass::before {
+      display: none;
+    }
+
+    .nav-glass {
+      border: 1px solid rgb(255 255 255 / 0.75);
+      box-shadow:
+        inset 0 1px 0 rgb(255 255 255 / 0.9),
+        0 0 0 0.5px rgb(15 40 80 / 0.08),
+        0 10px 24px -10px rgb(24 86 160 / 0.28);
+    }
+
+    [data-docked] .nav-glass {
+      -webkit-backdrop-filter: blur(8px) saturate(150%) brightness(1.04);
+      backdrop-filter: blur(8px) saturate(150%) brightness(1.04);
+    }
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    .glass-card,
+    .px-phone .glass-card {
       background: rgb(246 250 254);
       -webkit-backdrop-filter: none;
       backdrop-filter: none;
@@ -412,7 +469,122 @@
 }
 
 /*
- * Scroll motion lives in JavaScript: Lenis smooths the native scroll and GSAP ScrollTrigger
- * scrubs the parallax (see src/lib/scroll.ts). Elements carry marker classes only:
- * .px-* (hero layers) and .ft-* (footer). The feature section has no scroll motion.
+ * Scroll-driven parallax: runs natively on the GPU compositor thread in modern Chromium/Safari
+ * via CSS Scroll-Driven Animations, with GSAP ScrollTrigger as automatic fallback (src/lib/scroll.ts).
  */
+@keyframes px-sky {
+  to {
+    transform: translate3d(0, 22svh, 0);
+  }
+}
+@keyframes px-content {
+  to {
+    transform: translate3d(0, 14svh, 0);
+    opacity: 0.35;
+  }
+}
+@keyframes px-phone {
+  to {
+    transform: translate3d(0, 4svh, 0);
+  }
+}
+@keyframes px-cloud-far {
+  to {
+    transform: translate3d(0, -2svh, 0);
+  }
+}
+@keyframes px-cloud-back {
+  to {
+    transform: translate3d(0, -5svh, 0);
+  }
+}
+@keyframes px-cloud-front {
+  to {
+    transform: translate3d(0, -8svh, 0);
+  }
+}
+@keyframes px-cloud-near {
+  to {
+    transform: translate3d(0, -13svh, 0);
+  }
+}
+@keyframes ft-mark {
+  from {
+    transform: translate3d(0, 45%, 0);
+    opacity: 0.2;
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+  }
+}
+@keyframes ft-cloud {
+  from {
+    transform: translate3d(0, 18%, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@supports (animation-timeline: scroll()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .px-sky,
+    .px-phone,
+    .px-cloud-far,
+    .px-cloud-back,
+    .px-cloud-front,
+    .px-cloud-near {
+      will-change: transform;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: scroll(root);
+      animation-range: 0px var(--hero-h, 100svh);
+    }
+
+    .px-content {
+      will-change: transform, opacity;
+      animation: px-content linear both;
+      animation-timeline: scroll(root);
+      animation-range: 0px var(--hero-h, 100svh);
+    }
+
+    .px-sky {
+      animation-name: px-sky;
+    }
+    .px-phone {
+      animation-name: px-phone;
+    }
+    .px-cloud-far {
+      animation-name: px-cloud-far;
+    }
+    .px-cloud-back {
+      animation-name: px-cloud-back;
+    }
+    .px-cloud-front {
+      animation-name: px-cloud-front;
+    }
+    .px-cloud-near {
+      animation-name: px-cloud-near;
+    }
+
+    .ft-scope {
+      view-timeline-name: --footer-view;
+      view-timeline-axis: block;
+    }
+
+    .ft-mark {
+      will-change: transform, opacity;
+      animation: ft-mark linear both;
+      animation-timeline: --footer-view;
+      animation-range: entry 0% entry 100%;
+    }
+
+    .ft-cloud {
+      will-change: transform;
+      animation: ft-cloud linear both;
+      animation-timeline: --footer-view;
+      animation-range: entry 0% entry 100%;
+    }
+  }
+}

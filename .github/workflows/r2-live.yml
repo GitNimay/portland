@@ -1,0 +1,58 @@
+name: R2 Live Check
+
+# Connects to real Cloudflare exactly as the app's setup screen does (verify the token, find the account, find or make
+# the bucket, derive the S3 keys, probe), then writes, lists, reads and deletes objects. Unit tests run against a fake;
+# this catches a change on Cloudflare's side before users meet it. Nightly and on demand, never on PRs (no secrets
+# there).
+#
+# Needs the PORTLAND_CF_TOKEN secret: a token made from the app's own "Create token on Cloudflare" link, so it has the
+# same permissions users get. Without it the job notes that and passes. Optional repository variables:
+# PORTLAND_CF_ACCOUNT (when the token sees several accounts) and PORTLAND_R2_BUCKET (default portland-ci).
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: r2-live
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    name: R2 live round trip
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check for the token
+        id: token
+        env:
+          PORTLAND_CF_TOKEN: ${{ secrets.PORTLAND_CF_TOKEN }}
+        run: |
+          if [ -z "$PORTLAND_CF_TOKEN" ]; then
+            echo "::notice::PORTLAND_CF_TOKEN is not set; skipping the live R2 check."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: ./.github/actions/setup-android-gradle
+        if: steps.token.outputs.present == 'true'
+
+      - name: Connect and round-trip objects
+        if: steps.token.outputs.present == 'true'
+        env:
+          PORTLAND_CF_TOKEN: ${{ secrets.PORTLAND_CF_TOKEN }}
+          PORTLAND_CF_ACCOUNT: ${{ vars.PORTLAND_CF_ACCOUNT }}
+          PORTLAND_R2_BUCKET: ${{ vars.PORTLAND_R2_BUCKET || 'portland-ci' }}
+        run: |
+          ./gradlew :app:testDebugUnitTest --tests 'app.portland.data.R2LiveTest' --stacktrace
+          # A skipped test would pass silently; make sure it really ran.
+          grep -q 'skipped="0"' app/build/test-results/testDebugUnitTest/TEST-app.portland.data.R2LiveTest.xml

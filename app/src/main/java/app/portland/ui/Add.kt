@@ -106,7 +106,13 @@ private enum class Stage { Closed, Icons, Link }
  * Compose it late inside the screen's Box so it floats over the grid.
  */
 @Composable
-fun BoxScope.AddMenu(backdrop: Backdrop, boardId: String?, visible: Boolean = true) {
+fun BoxScope.AddMenu(
+    backdrop: Backdrop,
+    boardId: String?,
+    visible: Boolean = true,
+    /** Px to raise the button by, read at layout time (never recomposes): room for a card in its place. */
+    lift: () -> Float = { 0f },
+) {
     val p = LocalPalette.current
     val context = LocalContext.current
     val store = context.store
@@ -122,6 +128,7 @@ fun BoxScope.AddMenu(backdrop: Backdrop, boardId: String?, visible: Boolean = tr
 
     // 0 = the button, 1 = open: drives the frost, the scrim and the plus turning into a close mark.
     val t by animateFloatAsState(if (open) 1f else 0f, if (open) Motion.morphOpen() else Motion.morphClose(), label = "open")
+    val liftShare by animateFloatAsState(if (stage == Stage.Link) 0f else 1f, Motion.smooth(), label = "lift")
     BackHandler(open) { stage = if (stage == Stage.Link) Stage.Icons else Stage.Closed }
 
     fun close() {
@@ -165,6 +172,7 @@ fun BoxScope.AddMenu(backdrop: Backdrop, boardId: String?, visible: Boolean = tr
     ) {
         BoxWithConstraints(
             Modifier
+                .offset { IntOffset(0, -(lift() * liftShare).roundToInt()) }
                 // Rises above the keyboard only for its own link field, not for the search field.
                 .windowInsetsPadding(if (stage == Stage.Link) WindowInsets.ime.union(WindowInsets.navigationBars) else WindowInsets.navigationBars)
                 .padding(20.dp),

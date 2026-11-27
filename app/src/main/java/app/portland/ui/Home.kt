@@ -79,8 +79,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.portland.R
+import app.portland.data.Cloud
+import app.portland.data.CloudPolicy
 import app.portland.data.Library
-import app.portland.data.R2
 import app.portland.data.Release
 import app.portland.data.ReminderPolicy
 import app.portland.data.Reminders
@@ -103,6 +104,13 @@ fun HomeScreen() {
     val context = LocalContext.current
     val reminderSnap by Reminders.state(context).collectAsStateWithLifecycle()
     var settingsOpen by remember { mutableStateOf(false) }
+    val cloud by Cloud.state.collectAsStateWithLifecycle()
+    var setupOpen by remember { mutableStateOf(false) }
+    var nudgeReady by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(NUDGE_DELAY_MS)
+        nudgeReady = true
+    }
     var hasNotificationPermission by remember { mutableStateOf(Reminders.hasNotificationPermission(context)) }
     val requestNotificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         hasNotificationPermission = granted
@@ -260,7 +268,7 @@ fun HomeScreen() {
         )
         Header(
             // A string, not the library: a caption or note landing on one pin leaves it unchanged, so the header skips.
-            status = if (query.isNullOrBlank()) status(lib, importing) else "",
+            status = if (query.isNullOrBlank()) status(lib, importing, cloud.connected, cloud.keepLocal) else "",
             matches = if (query.isNullOrBlank()) null else pins.size,
             update = update,
             onUpdate = { activity?.let { a -> store.launch { Updater.install(a) } } },
@@ -288,7 +296,33 @@ fun HomeScreen() {
                 .navigationBarsPadding()
                 .height(72.dp),
         )
-        AddMenu(backdrop, boardId = null, visible = !selection.active)
+        // The backup card takes the add button's place and the button rises above it, both on one spring, so they
+        // move as one; dismissed or connected, the card sinks away and the button settles back.
+        val nudgeVisible = nudgeReady && CloudPolicy.showNudge(cloud, System.currentTimeMillis()) &&
+            !searching && !selection.active && importing == 0 && !settingsOpen && !setupOpen
+        val fabLift = remember { Animatable(0f) }
+        var nudgeHeight by remember { mutableIntStateOf(0) }
+        val liftTarget = if (nudgeVisible && nudgeHeight > 0) nudgeHeight + with(density) { 12.dp.toPx() } else 0f
+        LaunchedEffect(liftTarget) { fabLift.animateTo(liftTarget, Motion.smooth()) }
+        // Before the add menu, so its scrim dims the card too.
+        CloudNudge(
+            visible = nudgeVisible,
+            onHeight = { nudgeHeight = it },
+            backdrop = backdrop,
+            onSetUp = {
+                haptics.play(Fx.Tick)
+                setupOpen = true
+            },
+            onLater = {
+                haptics.play(Fx.Tick)
+                Cloud.snoozeNudge(context)
+            },
+            onNever = {
+                haptics.play(Fx.Tick)
+                Cloud.neverNudge(context)
+            },
+        )
+        AddMenu(backdrop, boardId = null, visible = !selection.active, lift = { fabLift.value })
         SelectionBar(selection)
     }
 
@@ -298,7 +332,11 @@ fun HomeScreen() {
             hasNotificationPermission = Reminders.hasNotificationPermission(context)
         })
     }
+    if (setupOpen) CloudSetupSheet(onDismiss = { setupOpen = false })
 }
+
+/** The R2 card waits until the start (and the intro, on a first launch) has settled. */
+private const val NUDGE_DELAY_MS = 3500L
 
 @Composable
 private fun Header(
@@ -491,15 +529,16 @@ private fun Header(
 /** The settings button fades out a little faster than the large title scrolls away. */
 private fun settingsAlpha(progress: Float) = (1f - progress * 1.6f).coerceIn(0f, 1f)
 
-private fun status(lib: Library, importing: Int): String {
+private fun status(lib: Library, importing: Int, connected: Boolean, keepLocal: Boolean): String {
     val n = lib.pins.size
     val saved = if (n == 1) "1 saved" else "$n saved"
     val waiting = lib.pins.count { !it.synced }
     return when {
         importing > 0 -> "Adding $importing…"
-        !R2.enabled -> "$saved · on this phone only"
-        waiting > 0 -> "$saved · $waiting waiting to back up"
-        else -> "$saved · backed up"
+        !connected -> "$saved · on this phone only"
+        waiting > 0 -> "$saved · $waiting uploading"
+        keepLocal -> "$saved · backed up"
+        else -> "$saved · in R2"
     }
 }
 

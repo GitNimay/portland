@@ -23,6 +23,10 @@
   - changed-files:
       - any-glob-to-any-file:
           - "app/src/main/java/app/portland/data/R2.kt"
+          - "app/src/main/java/app/portland/data/Cloud.kt"
+          - "app/src/main/java/app/portland/data/Cloudflare.kt"
+          - "app/src/main/java/app/portland/data/Vault.kt"
+          - "app/src/main/java/app/portland/ui/Cloud.kt"
           - "app/src/main/java/app/portland/data/Sync.kt"
 
 "area/media":

@@ -49,11 +49,17 @@ test.describe('legal pages', () => {
     expect(xml).not.toContain('<priority>')
 
     expect((await request.get('/llms.txt')).status()).toBe(200)
-    // Served as /security.txt; production rewrites /.well-known/security.txt to the same file
-    // (GitHub Actions artifact upload drops hidden directories, so CI preview cannot host .well-known/).
+
+    // The file lives at /security.txt so CI artifact upload (which drops hidden dirs) keeps it.
+    // Vite preview middleware and the Vercel rewrite both expose the RFC path as well.
     const security = await request.get('/security.txt')
     expect(security.status()).toBe(200)
-    expect(await security.text()).toContain('Canonical: https://www.portland.n1m35h.in/.well-known/security.txt')
+    const securityBody = await security.text()
+    expect(securityBody).toContain('Canonical: https://www.portland.n1m35h.in/.well-known/security.txt')
+
+    const wellKnown = await request.get('/.well-known/security.txt')
+    expect(wellKnown.status()).toBe(200)
+    expect(await wellKnown.text()).toBe(securityBody)
   })
 })
 

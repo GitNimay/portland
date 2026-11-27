@@ -14,8 +14,11 @@ import org.json.JSONObject
 import java.io.IOException
 import java.net.URLEncoder
 
-/** The bucket Portland makes in a new user's account. */
-const val DEFAULT_BUCKET = "portland"
+/**
+ * The bucket Portland makes in a user's account. Not "portland": that is where the release bridge lives for older
+ * builds, whose built-in key can reach any bucket of that name in its owner's account (see the publish job in CI).
+ */
+const val DEFAULT_BUCKET = "portland-library"
 
 /**
  * Opens Cloudflare's "Create API token" page with Portland's permissions already filled in, so the user only

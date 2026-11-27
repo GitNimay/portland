@@ -41,6 +41,8 @@ No accounts, no tracking.
 
 Download the latest APK from [**Releases**](https://github.com/GitNimay/portland/releases/latest). Release builds target `arm64-v8a` phones; after the first install, updates arrive automatically.
 
+The app checks the latest GitHub release for an update (`latest.json` sits next to the APK), downloads it in the background and verifies its SHA-256 before offering a restart. Builds from before bring-your-own-R2 can only see the old `portland` R2 bucket, so CI also publishes each release there (`.github/scripts/r2-bridge-publish.sh`) until those installs have moved on.
+
 ## Build
 
 Requires JDK 21 and the Android SDK.
@@ -59,7 +61,7 @@ Requires JDK 21 and the Android SDK.
 No keys are built into the app. Each person connects their own Cloudflare R2 bucket in **Settings → Storage → Cloudflare R2**:
 
 1. Tap **Create token on Cloudflare**. The token page opens with Portland's permissions already filled in (*Workers R2 Storage Edit*, *Account Settings Read*, *Workers AI Read*). Press **Create** and copy the token.
-2. Paste it into Portland and tap **Connect**. Portland finds the account, creates a `portland` bucket and checks that it can write there. The S3 keys come from the token itself: the access key ID is the token ID and the secret is the SHA-256 of the token value.
+2. Paste it into Portland and tap **Connect**. Portland finds the account, creates a `portland-library` bucket and checks that it can write there. The S3 keys come from the token itself: the access key ID is the token ID and the secret is the SHA-256 of the token value.
 
 R2 has to be turned on in the Cloudflare dashboard once (it has a free tier). People who already have R2 access keys can tap **Use access keys instead**.
 
